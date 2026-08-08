@@ -7,6 +7,7 @@ import { isSwitchEdge } from "../src/game/InputManager";
 import { PASS_POWER, canPass, getPassDirection, getPassTarget } from "../src/game/PassMechanics";
 import { acquirePossession, deriveTacticalStates, deriveTeamModes, loosePossession, possessionForRider, updatePossession } from "../src/game/Possession";
 import { getMatchResult, useMatch } from "../src/game/GameState";
+import { RIDE_OFF_COOLDOWN_MS, RIDE_OFF_RANGE, findRideOffTarget, rideOff } from "../src/game/RideOff";
 
 test("gallop and braking targets remain independent", () => {
   const normal = getTargetSpeed({ throttle: 1, gallop: false, brake: false });
@@ -178,6 +179,16 @@ test("B4.1 live possession transitions blue to red and resets loose",async({page
 
 test("B5 scores each attacking direction once, reaches full time, and restarts",()=>{
   const match=useMatch.getState();match.restart();match.scoreGoal("blue");expect(useMatch.getState().scores).toEqual({blue:1,red:0});match.scoreGoal("red");expect(useMatch.getState().scores).toEqual({blue:1,red:1});match.setSeconds(0);expect(useMatch.getState().matchPhase).toBe("FULL_TIME");expect(getMatchResult({blue:2,red:1})).toBe("BLUE WINS");expect(getMatchResult({blue:1,red:2})).toBe("RED WINS");expect(getMatchResult({blue:1,red:1})).toBe("DRAW");match.restart();expect(useMatch.getState().scores).toEqual({blue:0,red:0});expect(useMatch.getState().matchPhase).toBe("PLAYING");expect(useMatch.getState().activeHumanRiderId).toBe("blue1");
+});
+
+test("B6 ride-off legality rejects teams, range, head-on angle and cooldown",()=>{
+  const blue={id:"blue1",team:"blue" as const,x:0,z:0,heading:{x:0,z:-1},speed:6},red={id:"red1",team:"red" as const,x:2,z:0,heading:{x:0,z:-1},speed:6},now=1000,cooldowns:Record<string,number>={};
+  const valid=rideOff(blue,red,now,cooldowns);expect(valid.legal).toBe(true);expect(valid.strength).toBeGreaterThan(0);expect(Number.isFinite(valid.push.x)&&Number.isFinite(valid.push.z)).toBe(true);expect(Math.hypot(valid.push.x,valid.push.z)).toBeLessThan(3);
+  expect(rideOff(blue,{...red,id:"blue2",team:"blue"},now,cooldowns).reason).toBe("teammate");expect(rideOff(blue,{...red,x:RIDE_OFF_RANGE+1},now,cooldowns).reason).toBe("range");expect(rideOff(blue,{...red,heading:{x:0,z:1}},now,cooldowns).reason).toBe("head-on");expect(rideOff(blue,{...red,x:0,z:2},now,cooldowns).reason).toBe("not side-by-side");cooldowns.blue1=now+RIDE_OFF_COOLDOWN_MS;expect(findRideOffTarget(blue,[blue,red],now,cooldowns).reason).toBe("cooldown");
+});
+
+test("B6 performs a live human ride-off and rejects head-on contact",async({page})=>{
+  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await page.goto("/?e2e=1");type D={matchState:string;riders:Record<string,{x:number;z:number}>;ball?:object;lastRideOff?:{challengerId:string;targetId?:string;legal:boolean;reason:string;strength:number}};const read=()=>page.evaluate(()=>(window as Window&{__POLO_B1_DEBUG__?:D}).__POLO_B1_DEBUG__);await expect.poll(async()=>Object.keys((await read())?.riders??{}).length).toBe(4);await page.evaluate(()=>{window.dispatchEvent(new CustomEvent("polo-e2e-ride-setup",{detail:"legal"}));window.dispatchEvent(new KeyboardEvent("keydown",{code:"KeyF"}))});await expect.poll(async()=> (await read())?.lastRideOff?.legal).toBe(true);let d=(await read())!;expect(d.lastRideOff?.challengerId).toBe("blue1");expect(d.lastRideOff?.targetId).toBe("red1");expect(d.lastRideOff!.strength).toBeGreaterThan(0);expect(d.matchState).toBe("PLAYING");expect(d.ball).toBeTruthy();await page.keyboard.press("KeyF");await expect.poll(async()=> (await read())?.lastRideOff?.reason).toBe("cooldown");await page.waitForTimeout(950);await page.evaluate(()=>{window.dispatchEvent(new CustomEvent("polo-e2e-ride-setup",{detail:"head-on"}));window.dispatchEvent(new KeyboardEvent("keydown",{code:"KeyF"}))});await expect.poll(async()=> (await read())?.lastRideOff?.legal).toBe(false);expect((await read())!.lastRideOff?.reason).toBe("no legal opponent");expect(errors).toEqual([]);
 });
 
 test("completes a full 2v2 match lifecycle",async({page})=>{
