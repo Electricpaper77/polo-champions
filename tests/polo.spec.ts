@@ -6,6 +6,7 @@ import { RIDER_FIELD_BOUNDS, RIDER_SPAWNS, spawnToVector3 } from "../src/game/Ga
 import { isSwitchEdge } from "../src/game/InputManager";
 import { PASS_POWER, canPass, getPassDirection, getPassTarget } from "../src/game/PassMechanics";
 import { acquirePossession, deriveTacticalStates, deriveTeamModes, loosePossession, possessionForRider, updatePossession } from "../src/game/Possession";
+import { getMatchResult, useMatch } from "../src/game/GameState";
 
 test("gallop and braking targets remain independent", () => {
   const normal = getTargetSpeed({ throttle: 1, gallop: false, brake: false });
@@ -173,4 +174,8 @@ test("B4.1 live possession transitions blue to red and resets loose",async({page
   await page.evaluate(()=> (window as Window&{__POLO_B1_DEBUG__?:Debug}).__POLO_B1_DEBUG__?.setupBallFor?.("blue1"));await expect.poll(async()=> (await read())?.possession.kind).toBe("blue");let d=(await read())!;expect(d.teamModes).toEqual({blue:"attack",red:"defend"});expect(d.riders.blue2.tacticalState).toBe("SUPPORT");
   await page.evaluate(()=> (window as Window&{__POLO_B1_DEBUG__?:Debug}).__POLO_B1_DEBUG__?.setupBallFor?.("red1"));await expect.poll(async()=> (await read())?.possession.kind).toBe("red");d=(await read())!;expect(d.teamModes).toEqual({blue:"defend",red:"attack"});expect(d.riders.blue1.tacticalState).toBe("DEFEND");
   await page.evaluate(()=> (window as Window&{__POLO_B1_DEBUG__?:Debug}).__POLO_B1_DEBUG__?.resetPossession?.());await expect.poll(async()=> (await read())?.possession.kind).toBe("loose");
+});
+
+test("B5 scores each attacking direction once, reaches full time, and restarts",()=>{
+  const match=useMatch.getState();match.restart();match.scoreGoal("blue");expect(useMatch.getState().scores).toEqual({blue:1,red:0});match.scoreGoal("red");expect(useMatch.getState().scores).toEqual({blue:1,red:1});match.setSeconds(0);expect(useMatch.getState().matchPhase).toBe("FULL_TIME");expect(getMatchResult({blue:2,red:1})).toBe("BLUE WINS");expect(getMatchResult({blue:1,red:2})).toBe("RED WINS");expect(getMatchResult({blue:1,red:1})).toBe("DRAW");match.restart();expect(useMatch.getState().scores).toEqual({blue:0,red:0});expect(useMatch.getState().matchPhase).toBe("PLAYING");expect(useMatch.getState().activeHumanRiderId).toBe("blue1");
 });
