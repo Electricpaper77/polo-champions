@@ -3,6 +3,7 @@ import { BRAKE_SPEED, GALLOP_SPEED, getTargetSpeed, NORMAL_RIDE_SPEED } from "..
 import { getBallResetState, getShotImpulse, INITIAL_GOAL_STATE, transitionGoal } from "../src/game/PoloMechanics";
 import { attackingGoal, choosePossession, getAiState, getRoleTarget, isRightOfWay, nextPlayer, ROSTER } from "../src/game/TeamPolo";
 import { RIDER_FIELD_BOUNDS, RIDER_SPAWNS, spawnToVector3 } from "../src/game/Game";
+import { isSwitchEdge } from "../src/game/InputManager";
 
 test("gallop and braking targets remain independent", () => {
   const normal = getTargetSpeed({ throttle: 1, gallop: false, brake: false });
@@ -106,3 +107,25 @@ test("spawn conversion is finite, independent, distinct, and inside the field", 
     expect(Math.abs(spawn.z)).toBeLessThanOrEqual(RIDER_FIELD_BOUNDS.z);
   }
 });
+
+test("B2 switches one active human rider, hands off movement, and follows the new rider", async ({ page }) => {
+  await page.goto("/?e2e=1");
+  type Rider={human:boolean;x:number;z:number}; type Debug={activeHumanRiderId:string;cameraFollowId:string;riders:Record<string,Rider>};
+  const read=()=>page.evaluate(()=>(window as Window&{__POLO_B1_DEBUG__?:Debug}).__POLO_B1_DEBUG__!);
+  await expect.poll(async()=>Object.keys((await read())?.riders??{}).length).toBe(4);
+  expect((await read()).activeHumanRiderId).toBe("blue1");
+  await page.keyboard.press("Tab");
+  await expect.poll(async()=> (await read()).activeHumanRiderId).toBe("blue2");
+  const afterSwitch=await read();
+  expect(afterSwitch.cameraFollowId).toBe("blue2");
+  expect(Object.values(afterSwitch.riders).filter(r=>r.human)).toHaveLength(1);
+  expect(afterSwitch.riders.blue2.human).toBe(true); expect(afterSwitch.riders.blue1.human).toBe(false);
+  const blue1Start=afterSwitch.riders.blue1,blue2Start=afterSwitch.riders.blue2;
+  await page.keyboard.down("KeyW");
+  await expect.poll(async()=>{const d=await read();return Math.hypot(d.riders.blue2.x-blue2Start.x,d.riders.blue2.z-blue2Start.z)>.5&&Math.hypot(d.riders.blue1.x-blue1Start.x,d.riders.blue1.z-blue1Start.z)>.5}).toBe(true);
+  await page.keyboard.up("KeyW"); await page.keyboard.press("Tab");
+  await expect.poll(async()=> (await read()).activeHumanRiderId).toBe("blue1");
+  const final=await read(); expect(final.cameraFollowId).toBe("blue1"); expect(Object.values(final.riders).filter(r=>r.human)).toHaveLength(1); expect(final.riders.blue1.human).toBe(true); expect(final.riders.blue2.human).toBe(false);
+});
+
+test("gamepad switch edge logic fires only on a press transition",()=>{expect(isSwitchEdge(true,false)).toBe(true);expect(isSwitchEdge(true,true)).toBe(false);expect(isSwitchEdge(false,true)).toBe(false)});
