@@ -4,6 +4,7 @@ import { getBallResetState, getShotImpulse, INITIAL_GOAL_STATE, transitionGoal }
 import { attackingGoal, choosePossession, getAiState, getRoleTarget, isRightOfWay, nextPlayer, ROSTER } from "../src/game/TeamPolo";
 import { RIDER_FIELD_BOUNDS, RIDER_SPAWNS, spawnToVector3 } from "../src/game/Game";
 import { isSwitchEdge } from "../src/game/InputManager";
+import { PASS_POWER, canPass, getPassDirection, getPassTarget } from "../src/game/PassMechanics";
 
 test("gallop and braking targets remain independent", () => {
   const normal = getTargetSpeed({ throttle: 1, gallop: false, brake: false });
@@ -129,3 +130,26 @@ test("B2 switches one active human rider, hands off movement, and follows the ne
 });
 
 test("gamepad switch edge logic fires only on a press transition",()=>{expect(isSwitchEdge(true,false)).toBe(true);expect(isSwitchEdge(true,true)).toBe(false);expect(isSwitchEdge(false,true)).toBe(false)});
+
+test("B3 pass mechanics select the teammate, enforce range, and produce finite directed power",()=>{
+  const riders=[{id:"blue1" as const,x:0,y:0,z:0},{id:"blue2" as const,x:10,y:0,z:0},{id:"red1" as const,x:0,y:0,z:2},{id:"red2" as const,x:0,y:0,z:-2}];
+  expect(getPassTarget("blue1",riders)?.id).toBe("blue2"); expect(getPassTarget("blue2",riders)?.id).toBe("blue1");
+  expect(canPass({x:0,z:0},{x:4.9,z:0})).toBe(true);expect(canPass({x:0,z:0},{x:5.1,z:0})).toBe(false);
+  expect(getPassDirection({x:0,y:0,z:0},{x:10,y:0,z:0}).x).toBeGreaterThan(.9);expect(getPassDirection({x:0,y:0,z:0},{x:0,y:0,z:-10}).z).toBeLessThan(-.9);
+  expect(PASS_POWER).toBeGreaterThan(0);expect(Number.isFinite(PASS_POWER)).toBe(true);
+});
+
+test("B3 passes through live ball physics to either blue teammate",async({page})=>{
+  await page.goto("/?e2e=1");
+  type Debug={activeHumanRiderId:string;lastPass?:{from:string;target:string;direction:{x:number;y:number;z:number};power:number};incomingPassTargetRiderId?:string;ball?:{x:number;y:number;z:number};setupPass?:()=>void;riders:Record<string,object>};
+  const read=()=>page.evaluate(()=>(window as Window&{__POLO_B1_DEBUG__?:Debug}).__POLO_B1_DEBUG__);
+  await expect.poll(async()=>Object.keys((await read())?.riders??{}).length).toBe(4);
+  for(const [from,target] of [["blue1","blue2"],["blue2","blue1"]] as const){
+    if((await read())!.activeHumanRiderId!==from){await page.keyboard.press("Tab");await expect.poll(async()=> (await read())?.activeHumanRiderId).toBe(from)}
+    await page.evaluate(()=> (window as Window&{__POLO_B1_DEBUG__?:Debug}).__POLO_B1_DEBUG__?.setupPass?.());
+    const before=(await read())!.ball!;await page.keyboard.press("KeyE");
+    await expect.poll(async()=>{const d=await read();return d?.lastPass?.from===from&&d.lastPass.target===target&&d.incomingPassTargetRiderId===target}).toBe(true);
+    const pass=(await read())!.lastPass!;expect(pass.power).toBe(PASS_POWER);expect(Number.isFinite(pass.direction.x)&&Number.isFinite(pass.direction.z)).toBe(true);
+    await expect.poll(async()=>{const ball=(await read())?.ball;return !!ball&&Math.hypot(ball.x-before.x,ball.z-before.z)>.2}).toBe(true);
+  }
+});
