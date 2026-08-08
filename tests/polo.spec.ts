@@ -5,6 +5,7 @@ import { attackingGoal, choosePossession, getAiState, getRoleTarget, isRightOfWa
 import { RIDER_FIELD_BOUNDS, RIDER_SPAWNS, spawnToVector3 } from "../src/game/Game";
 import { isSwitchEdge } from "../src/game/InputManager";
 import { PASS_POWER, canPass, getPassDirection, getPassTarget } from "../src/game/PassMechanics";
+import { acquirePossession, deriveTacticalStates, deriveTeamModes, loosePossession, possessionForRider, updatePossession } from "../src/game/Possession";
 
 test("gallop and braking targets remain independent", () => {
   const normal = getTargetSpeed({ throttle: 1, gallop: false, brake: false });
@@ -152,4 +153,24 @@ test("B3 passes through live ball physics to either blue teammate",async({page})
     const pass=(await read())!.lastPass!;expect(pass.power).toBe(PASS_POWER);expect(Number.isFinite(pass.direction.x)&&Number.isFinite(pass.direction.z)).toBe(true);
     await expect.poll(async()=>{const ball=(await read())?.ball;return !!ball&&Math.hypot(ball.x-before.x,ball.z-before.z)>.2}).toBe(true);
   }
+});
+
+test("B4 possession is exclusive and derives immediate team transitions",()=>{
+  const blue=possessionForRider("blue1"),red=possessionForRider("red1");
+  expect(deriveTeamModes(blue)).toEqual({blue:"attack",red:"defend"});expect(deriveTacticalStates(blue).blue1).toBe("ATTACK");expect(deriveTacticalStates(blue).blue2).toBe("SUPPORT");
+  expect(deriveTeamModes(red)).toEqual({blue:"defend",red:"attack"});expect(deriveTacticalStates(red).red1).toBe("ATTACK");
+  expect(deriveTeamModes(loosePossession())).toEqual({blue:"loose",red:"loose"});expect(acquirePossession([{id:"blue1",x:0,z:0},{id:"blue2",x:9,z:0},{id:"red1",x:1,z:0},{id:"red2",x:8,z:0}],{x:1,z:0})).toEqual(red);
+});
+
+test("B4.1 possession hysteresis retains control until the release radius",()=>{
+  const riders=[{id:"blue1" as const,x:0,z:0},{id:"blue2" as const,x:12,z:0},{id:"red1" as const,x:20,z:0},{id:"red2" as const,x:25,z:0}];
+  const blue=possessionForRider("blue1");expect(updatePossession(blue,riders,{x:4,z:0})).toEqual(blue);expect(updatePossession(blue,riders,{x:6,z:0})).toEqual(loosePossession());expect(updatePossession(blue,[...riders.slice(0,2),{id:"red1" as const,x:1,z:0},riders[3]],{x:1,z:0})).toEqual(possessionForRider("red1"));
+});
+
+test("B4.1 live possession transitions blue to red and resets loose",async({page})=>{
+  await page.goto("/?e2e=1"); type Debug={possession:{kind:string;riderId?:string};teamModes:{blue:string;red:string};riders:Record<string,{tacticalState?:string}>;setupBallFor?:(id:"blue1"|"blue2"|"red1"|"red2")=>void;resetPossession?:()=>void}; const read=()=>page.evaluate(()=>(window as Window&{__POLO_B1_DEBUG__?:Debug}).__POLO_B1_DEBUG__);
+  await expect.poll(async()=>Object.keys((await read())?.riders??{}).length).toBe(4);expect((await read())!.possession.kind).toBe("loose");
+  await page.evaluate(()=> (window as Window&{__POLO_B1_DEBUG__?:Debug}).__POLO_B1_DEBUG__?.setupBallFor?.("blue1"));await expect.poll(async()=> (await read())?.possession.kind).toBe("blue");let d=(await read())!;expect(d.teamModes).toEqual({blue:"attack",red:"defend"});expect(d.riders.blue2.tacticalState).toBe("SUPPORT");
+  await page.evaluate(()=> (window as Window&{__POLO_B1_DEBUG__?:Debug}).__POLO_B1_DEBUG__?.setupBallFor?.("red1"));await expect.poll(async()=> (await read())?.possession.kind).toBe("red");d=(await read())!;expect(d.teamModes).toEqual({blue:"defend",red:"attack"});expect(d.riders.blue1.tacticalState).toBe("DEFEND");
+  await page.evaluate(()=> (window as Window&{__POLO_B1_DEBUG__?:Debug}).__POLO_B1_DEBUG__?.resetPossession?.());await expect.poll(async()=> (await read())?.possession.kind).toBe("loose");
 });
