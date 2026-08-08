@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { BRAKE_SPEED, GALLOP_SPEED, getTargetSpeed, NORMAL_RIDE_SPEED } from "../src/game/HorseControls";
 import { getBallResetState, getShotImpulse, INITIAL_GOAL_STATE, transitionGoal } from "../src/game/PoloMechanics";
+import { attackingGoal, choosePossession, getAiState, getRoleTarget, isRightOfWay, nextPlayer, ROSTER } from "../src/game/TeamPolo";
 
 test("gallop and braking targets remain independent", () => {
   const normal = getTargetSpeed({ throttle: 1, gallop: false, brake: false });
@@ -42,6 +43,20 @@ test("a goal scores once until the ball leaves and resets deterministically", ()
   expect(stillInGoal.scored).toBe(false);
   expect(rearmed.state.armed).toBe(true);
   expect(reset).toEqual({ position: { x: 0, y: 0.65, z: 0 }, velocity: { x: 0, y: 0, z: 0 } });
+});
+
+test("team roles react to possession, select the correct goal, and switch players", () => {
+  const blueBack = ROSTER.find(r => r.id === "blue-2")!;
+  const goldFinisher = ROSTER.find(r => r.id === "red-1")!;
+  expect(ROSTER).toHaveLength(4);
+  expect(attackingGoal("blue")).toBe(1);
+  expect(attackingGoal("gold")).toBe(-1);
+  expect(nextPlayer("blue-1")).toBe("blue-2");
+  expect(getAiState(blueBack, "gold", { x: 0, z: 0 })).toBe("RECOVER");
+  expect(getAiState(goldFinisher, "gold", { x: 0, z: 0 })).toBe("ATTACK");
+  expect(getRoleTarget(goldFinisher, "gold", { x: 0, z: 0 }).z).toBeLessThan(0);
+  expect(choosePossession({ x: 0, z: 0 }, [{ ...blueBack, position: { x: 1, z: 0 } }, { ...goldFinisher, position: { x: 8, z: 0 } }])).toBe("blue");
+  expect(isRightOfWay({ x: 0, z: 0 }, { x: 0, z: 8 }, { x: 2, z: -1 })).toBe(true);
 });
 
 test("loads the playable polo slice without page errors", async ({ page }) => {
