@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { BRAKE_SPEED, GALLOP_SPEED, getTargetSpeed, NORMAL_RIDE_SPEED } from "../src/game/HorseControls";
 import { getBallResetState, getShotImpulse, INITIAL_GOAL_STATE, transitionGoal } from "../src/game/PoloMechanics";
 import { attackingGoal, choosePossession, getAiState, getRoleTarget, isRightOfWay, nextPlayer, ROSTER } from "../src/game/TeamPolo";
+import { RIDER_FIELD_BOUNDS, RIDER_SPAWNS, spawnToVector3 } from "../src/game/Game";
 
 test("gallop and braking targets remain independent", () => {
   const normal = getTargetSpeed({ throttle: 1, gallop: false, brake: false });
@@ -69,4 +70,39 @@ test("loads the playable polo slice without page errors", async ({ page }) => {
   await page.keyboard.press("Space");
   await expect(page.locator("canvas")).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("B1 exposes four live riders and all AI riders move within the field", async ({ page }) => {
+  await page.goto("/?e2e=1");
+  await expect.poll(() => page.evaluate(() => Object.keys((window as Window & { __POLO_B1_DEBUG__?: { riders: object } }).__POLO_B1_DEBUG__?.riders ?? {}).length)).toBe(4);
+  const read = () => page.evaluate(() => (window as Window & { __POLO_B1_DEBUG__?: { riders: Record<string, { id:string; team:string; human:boolean; x:number; y:number; z:number }> } }).__POLO_B1_DEBUG__!.riders);
+  const riders = await read();
+  expect(Object.keys(riders).sort()).toEqual(["blue1", "blue2", "red1", "red2"]);
+  expect(Object.values(riders).filter(r => r.human).map(r => r.id)).toEqual(["blue1"]);
+  for (const rider of Object.values(riders)) expect([rider.x, rider.y, rider.z].every(Number.isFinite)).toBe(true);
+  expect(new Set(Object.values(riders).map(r => `${r.x.toFixed(2)},${r.z.toFixed(2)}`)).size).toBe(4);
+  const start = Object.fromEntries(["blue2", "red1", "red2"].map(id => [id, riders[id]]));
+  await expect.poll(async () => {
+    const current = await read();
+    return Object.keys(start).every(id => Math.hypot(current[id].x - start[id].x, current[id].z - start[id].z) > 0.5);
+  }).toBe(true);
+  const final = await read();
+  for (const id of ["blue2", "red1", "red2"]) {
+    expect(Math.abs(final[id].x)).toBeLessThanOrEqual(RIDER_FIELD_BOUNDS.x);
+    expect(Math.abs(final[id].z)).toBeLessThanOrEqual(RIDER_FIELD_BOUNDS.z);
+  }
+});
+
+test("spawn conversion is finite, independent, distinct, and inside the field", () => {
+  const evidence = spawnToVector3([12, -8]);
+  expect(evidence.toArray()).toEqual([12, 0, -8]);
+  const first = spawnToVector3(RIDER_SPAWNS.blue1), second = spawnToVector3(RIDER_SPAWNS.blue1);
+  expect(first).not.toBe(second);
+  const spawns = Object.values(RIDER_SPAWNS).map(spawnToVector3);
+  expect(new Set(spawns.map(p => `${p.x},${p.z}`)).size).toBe(spawns.length);
+  for (const spawn of spawns) {
+    expect([spawn.x, spawn.y, spawn.z].every(Number.isFinite)).toBe(true);
+    expect(Math.abs(spawn.x)).toBeLessThanOrEqual(RIDER_FIELD_BOUNDS.x);
+    expect(Math.abs(spawn.z)).toBeLessThanOrEqual(RIDER_FIELD_BOUNDS.z);
+  }
 });
