@@ -1,0 +1,10 @@
+import { getHorseArchetype, type HorseArchetype } from "./HorseControls";
+export type Team="BLUE"|"RED"; export type Role="ATTACKER"|"PIVOT"; export type Vec={x:number;z:number};
+export type Bot={id:string;team:Team;role:Role;archetype:HorseArchetype;position:Vec;facing:Vec}; export type BotState="APPROACH_BALL"|"CHARGE_SWING"|"RIDE_OFF_INTERCEPT"|"ZONE_DEFEND";
+const dot=(a:Vec,b:Vec)=>a.x*b.x+a.z*b.z,sub=(a:Vec,b:Vec)=>({x:a.x-b.x,z:a.z-b.z}),length=(a:Vec)=>Math.hypot(a.x,a.z),norm=(a:Vec)=>{const l=length(a)||1;return{x:a.x/l,z:a.z/l}};
+export function create2v2():Bot[]{return[{id:"blue-1",team:"BLUE",role:"ATTACKER",archetype:"SPRINTER",position:{x:-4,z:12},facing:{x:0,z:-1}},{id:"blue-2",team:"BLUE",role:"PIVOT",archetype:"POWER",position:{x:4,z:16},facing:{x:0,z:-1}},{id:"red-1",team:"RED",role:"ATTACKER",archetype:"SPRINTER",position:{x:4,z:-12},facing:{x:0,z:1}},{id:"red-2",team:"RED",role:"PIVOT",archetype:"POWER",position:{x:-4,z:-16},facing:{x:0,z:1}}]}
+export function decideBot(bot:Bot,ball:Vec,opponent?:Bot):BotState{const toBall=sub(ball,bot.position);if(opponent&&length(sub(opponent.position,bot.position))<3&&Math.abs(dot(norm(toBall),norm(sub(opponent.position,bot.position))))>.7)return"RIDE_OFF_INTERCEPT";if(bot.role==="PIVOT"&&Math.abs(bot.position.z)>18)return"ZONE_DEFEND";return length(toBall)<4&&dot(norm(toBall),bot.facing)>.65?"CHARGE_SWING":"APPROACH_BALL"}
+export function legalRideOff(a:Bot,b:Bot){return Math.acos(Math.max(-1,Math.min(1,dot(norm(a.facing),norm(b.facing)))))<=Math.PI/4}
+export function rideOffImpulse(a:Bot,b:Bot){return legalRideOff(a,b)?Math.max(0,getHorseArchetype(a.archetype).mass-getHorseArchetype(b.archetype).mass+.25):0}
+export function isLineOfBallFoul(ball:Vec,line:Vec,rider:Vec,pursuer:Team,riderTeam:Team){return riderTeam!==pursuer&&dot(sub(rider,ball),norm(line))>0&&Math.abs(line.x*(rider.z-ball.z)-line.z*(rider.x-ball.x))<2}
+export function goalResult(position:Vec){return Math.abs(position.z)>42&&Math.abs(position.x)<5?{scored:true,reset:{x:0,z:0}}:{scored:false,reset:null}}
