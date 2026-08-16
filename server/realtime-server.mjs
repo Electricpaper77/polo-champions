@@ -1,6 +1,6 @@
 import { WebSocket, WebSocketServer } from "ws";
 
-const PORT = Number(process.env.PORT ?? 8081);
+const PORT = Number(process.env.PORT ?? 8080);
 const SIMULATION_HZ = 60;
 const NETWORK_HZ = 20;
 const CAPACITY = 12;

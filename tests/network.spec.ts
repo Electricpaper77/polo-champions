@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { FixedTimestepLoop } from "../src/game/GameLoop";
 import { PredictionController, SnapshotBuffer, compressSnapshot, createInitialNetworkSnapshot, decompressSnapshot, type InputCommand, type NetworkSnapshot } from "../src/game/NetworkSync";
-import { NetworkManager, type WebSocketTransport } from "../src/services/NetworkManager";
+import { NetworkManager, reconnectDelay, resolveWebSocketUrl, type WebSocketTransport } from "../src/services/NetworkManager";
 
 class MockSocket implements WebSocketTransport {
   readyState = 0;
@@ -12,6 +12,7 @@ class MockSocket implements WebSocketTransport {
   onclose = (_event: unknown) => undefined;
   send(data: string) { this.sent.push(data); }
   close() { this.readyState = 3; this.onclose({}); }
+  drop() { this.readyState = 3; this.onclose({}); }
   open() { this.readyState = 1; this.onopen({}); }
   serverSend(value: unknown) { this.onmessage({ data: JSON.stringify(value) }); }
 }
@@ -41,6 +42,57 @@ test("mock websocket room broadcasts canonical 12-entity state and accepts assig
   expect(manager.sendInput(command(1))).toBe(true);
   const inputMessage = JSON.parse(socket.sent.at(-1)!);
   expect(inputMessage).toMatchObject({ type: "INPUT", payload: { matchId: "room-1", entityId: "player", command: { sequence: 1 } } });
+  manager.disconnect();
+});
+
+test("websocket environment routing falls back locally and honors production configuration", () => {
+  expect(resolveWebSocketUrl()).toBe("ws://localhost:8080");
+  expect(resolveWebSocketUrl("  wss://polo-realtime.example.com/socket  ")).toBe("wss://polo-realtime.example.com/socket");
+  expect(reconnectDelay(1, 100, 1_000)).toBe(100);
+  expect(reconnectDelay(2, 100, 1_000)).toBe(200);
+  expect(reconnectDelay(8, 100, 1_000)).toBe(1_000);
+});
+
+test("unexpected disconnect reconnects with backoff and restores the queued player", async () => {
+  const sockets: MockSocket[] = [];
+  const states: string[] = [];
+  const manager = new NetworkManager("ws://mock", () => {
+    const socket = new MockSocket();
+    sockets.push(socket);
+    return socket;
+  }, { baseDelayMs: 5, maxDelayMs: 20 });
+  manager.on("status", status => states.push(status.state));
+
+  const connected = manager.connect();
+  sockets[0].open();
+  await connected;
+  expect(manager.requestRoom("POLOPLAYER1")).toBe(true);
+  sockets[0].drop();
+
+  await expect.poll(() => sockets.length).toBe(2);
+  sockets[1].open();
+  await expect.poll(() => sockets[1].sent.length).toBe(1);
+  expect(JSON.parse(sockets[1].sent[0])).toEqual({ type: "JOIN_QUEUE", payload: { playerName: "POLOPLAYER1", mode: "6V6" } });
+  expect(states).toEqual(expect.arrayContaining(["DISCONNECTED", "CONNECTING", "CONNECTED"]));
+  manager.disconnect();
+});
+
+test("synchronous socket construction failure does not pin a rejected connection", async () => {
+  let attempts = 0;
+  const sockets: MockSocket[] = [];
+  const manager = new NetworkManager("ws://mock", () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error("socket constructor failed");
+    const socket = new MockSocket();
+    sockets.push(socket);
+    return socket;
+  }, { baseDelayMs: 5, maxDelayMs: 20 });
+
+  await expect(manager.connect()).rejects.toThrow("socket constructor failed");
+  await expect.poll(() => sockets.length).toBe(1);
+  sockets[0].open();
+  await expect.poll(() => attempts).toBe(2);
+  manager.disconnect();
 });
 
 test("fixed simulation runs at 60Hz and emits exactly 20 network ticks", () => {
@@ -90,7 +142,7 @@ test("client prediction applies input immediately and reconciliation consumes ac
 test("live realtime server assigns a canonical room and broadcasts advancing snapshots", async ({ page }) => {
   await page.goto("/");
   const result = await page.evaluate(() => new Promise<{ entities: number; firstTick: number; secondTick: number; assigned: string }>((resolve, reject) => {
-    const socket = new WebSocket("ws://127.0.0.1:8081");
+    const socket = new WebSocket("ws://127.0.0.1:8080");
     let entities = 0, assigned = "", firstTick = -1;
     const timeout = window.setTimeout(() => { socket.close(); reject(new Error("Realtime room timed out")); }, 7_000);
     socket.onopen = () => socket.send(JSON.stringify({ type: "JOIN_QUEUE", payload: { playerName: "NETWORK_TEST", mode: "6V6" } }));
