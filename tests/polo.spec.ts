@@ -4,6 +4,7 @@ import { canApplyStrike, getBallResetState, getMalletAngle, getShotImpulse, getS
 import { applyRideOffDisplacement, create2v2, decideBot, goalResult, isLineOfBallFoul, legalRideOff, rideOffImpulse } from "../src/game/MatchRules";
 import { FoulToast } from "../src/game/Game";
 import { initializeMatchEntities } from "../src/game/GameState";
+async function enterMatch(page: import("@playwright/test").Page) { await page.getByRole("button", { name: "PLAY QUICK MATCH" }).click(); await expect(page.getByText("SEARCHING FOR MATCH")).toBeVisible(); await expect(page.locator("canvas")).toBeVisible({ timeout: 5_000 }); }
 
 test("gallop and braking targets remain independent", () => {
   const normal = getTargetSpeed({ throttle: 1, gallop: false, brake: false });
@@ -115,6 +116,7 @@ test("loads the playable polo slice without page errors", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto("/");
+  await enterMatch(page);
   await expect(page.getByText("POLO CHAMPIONS")).toBeVisible();
   await expect(page.getByText("YOUR GOALS")).toBeVisible();
   await page.keyboard.press("KeyW");
@@ -125,6 +127,7 @@ test("loads the playable polo slice without page errors", async ({ page }) => {
 
 test("broadcast HUD renders teams, telemetry, and field radar", async ({ page }) => {
   await page.goto("/");
+  await enterMatch(page);
   await expect(page.getByText("BLUE", { exact: true })).toBeVisible();
   await expect(page.getByText("RED", { exact: true })).toBeVisible();
   await expect(page.getByText("CHUKKER 1", { exact: true })).toBeVisible();
