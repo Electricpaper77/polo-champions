@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { advanceHorseSpeed, advanceStamina, BRAKE_SPEED, GALLOP_SPEED, getArchetypeCoat, getBodyLean, getCameraOffset, getGait, getHorseArchetype, getRiderPose, getSteeringRate, getTargetSpeed, HORSE_COATS, NORMAL_RIDE_SPEED } from "../src/game/HorseControls";
 import { canApplyStrike, getBallResetState, getMalletAngle, getShotImpulse, getStrikePhase, INITIAL_GOAL_STATE, isStrikeContact, transitionGoal } from "../src/game/PoloMechanics";
-import { create2v2, decideBot, goalResult, isLineOfBallFoul, legalRideOff, rideOffImpulse } from "../src/game/MatchRules";
+import { applyRideOffDisplacement, create2v2, decideBot, goalResult, isLineOfBallFoul, legalRideOff, rideOffImpulse } from "../src/game/MatchRules";
+import { FoulToast } from "../src/game/Game";
+import { initializeMatchEntities } from "../src/game/GameState";
 
 test("gallop and braking targets remain independent", () => {
   const normal = getTargetSpeed({ throttle: 1, gallop: false, brake: false });
@@ -133,3 +135,5 @@ test("broadcast HUD renders teams, telemetry, and field radar", async ({ page })
 test("AI role assignment and pursuit choose tactical states", () => { const bots=create2v2(); expect(bots).toHaveLength(4); expect(bots.filter(b=>b.role==="ATTACKER")).toHaveLength(2); expect(decideBot(bots[0],{x:0,z:0})).toBe("APPROACH_BALL"); expect(decideBot({...bots[0],position:{x:0,z:1},facing:{x:0,z:-1}},{x:0,z:0})).toBe("CHARGE_SWING"); });
 test("ride-off collision respects parallel angle and archetype mass", () => { const [sprinter,power]=[create2v2()[0],create2v2()[1]]; expect(legalRideOff(sprinter,power)).toBe(true); expect(rideOffImpulse(power,sprinter)).toBeGreaterThan(rideOffImpulse(sprinter,power)); expect(rideOffImpulse(sprinter,{...power,facing:{x:1,z:0}})).toBe(0); });
 test("goal and line-of-ball rules resolve deterministically", () => { expect(goalResult({x:0,z:43})).toEqual({scored:true,reset:{x:0,z:0}}); expect(isLineOfBallFoul({x:0,z:0},{x:0,z:1},{x:0,z:5},"BLUE","RED")).toBe(true); });
+test("unified player and bot ride-off applies a mass-weighted displacement", () => { const entities=initializeMatchEntities(); expect(Object.keys(entities)).toEqual(["player","blue_2","red_1","red_2"]); const player={id:"player",team:"BLUE" as const,role:"ATTACKER" as const,archetype:entities.player.archetype,position:{x:0,z:0},facing:{x:0,z:1}},power={id:"blue_2",team:"BLUE" as const,role:"PIVOT" as const,archetype:"POWER" as const,position:{x:1,z:0},facing:{x:0,z:1}},result=applyRideOffDisplacement(player,power); expect(result.a.x).toBeLessThan(player.position.x); expect(result.b.x).toBe(power.position.x); });
+test("LOB foul banner renders only while an active foul exists", () => { const visible=FoulToast({active:true}); expect(visible?.props.children).toBe("FOUL: LINE OF BALL CROSSING"); expect(visible?.props.className).toBe("foul-toast"); expect(FoulToast({active:false})).toBeNull(); });
