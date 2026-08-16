@@ -1,0 +1,4 @@
+import { useEffect, useState } from "react";
+import "./party.css";
+const tips=["TIP: Use teamwork and positioning to control the line of the ball.","TIP: A Power horse holds a stronger ride-off line.","TIP: Approach the ball with speed, then recover your seat."];
+export function LoadingScreen({ onReady }: { onReady: () => void }) { const [progress,setProgress]=useState(0),[tip]=useState(()=>tips[Math.floor(Math.random()*tips.length)]);useEffect(()=>{const timer=window.setInterval(()=>setProgress(value=>Math.min(100,value+10)),120);return()=>window.clearInterval(timer)},[]);useEffect(()=>{if(progress===100){const timer=window.setTimeout(onReady,180);return()=>window.clearTimeout(timer)}},[progress,onReady]);return <main className="loading" aria-label="Loading match"><div className="loading-crest">♛<b>POLO CHAMPIONS</b></div><strong>PREPARING COWDRAY PARK</strong><span><i style={{width:`${progress}%`}}/></span><em>{progress}%</em><p>{tip}</p></main>; }
