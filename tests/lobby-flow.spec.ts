@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test("party ready authorizes the host start and loading enters the 4v4 pitch", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "HOST CUSTOM PARTY" }).click();
+  await page.getByRole("button", { name: "CUSTOM LOBBY" }).click();
   await expect(page.getByText("YOUR PARTY 4/4")).toBeVisible();
   const start = page.getByRole("button", { name: "START MATCH" });
   await expect(start).toBeDisabled();
