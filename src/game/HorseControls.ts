@@ -12,6 +12,9 @@ export type Gait = "IDLE" | "WALK" | "TROT" | "CANTER" | "GALLOP";
 export type RiderPose = { torsoPitch: number; hipPitch: number; seatHeight: number; strideCadence: number };
 export type HorseArchetype = "SPRINTER" | "ALL_ROUNDER" | "POWER";
 export type HorseArchetypeConfig = { acceleration: number; topSpeed: number; agility: number; mass: number; staminaDrain: number };
+export type HorseCoat = "BAY" | "DARK_BAY" | "CHESTNUT" | "LIGHT_GRAY";
+export const HORSE_COATS: Record<HorseCoat, string> = { BAY: "#6c4327", DARK_BAY: "#2d201b", CHESTNUT: "#9a4926", LIGHT_GRAY: "#b9b5aa" };
+export function getArchetypeCoat(archetype: HorseArchetype): HorseCoat { return archetype === "SPRINTER" ? "CHESTNUT" : archetype === "POWER" ? "DARK_BAY" : "BAY"; }
 export const HORSE_ARCHETYPES: Record<HorseArchetype, HorseArchetypeConfig> = {
   SPRINTER: { acceleration: 1.2, topSpeed: 1.2, agility: 1.15, mass: .85, staminaDrain: 1.1 },
   ALL_ROUNDER: { acceleration: 1, topSpeed: 1, agility: 1, mass: 1, staminaDrain: 1 },

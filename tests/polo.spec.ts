@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { advanceHorseSpeed, advanceStamina, BRAKE_SPEED, GALLOP_SPEED, getBodyLean, getCameraOffset, getGait, getHorseArchetype, getRiderPose, getSteeringRate, getTargetSpeed, NORMAL_RIDE_SPEED } from "../src/game/HorseControls";
+import { advanceHorseSpeed, advanceStamina, BRAKE_SPEED, GALLOP_SPEED, getArchetypeCoat, getBodyLean, getCameraOffset, getGait, getHorseArchetype, getRiderPose, getSteeringRate, getTargetSpeed, HORSE_COATS, NORMAL_RIDE_SPEED } from "../src/game/HorseControls";
 import { canApplyStrike, getBallResetState, getMalletAngle, getShotImpulse, getStrikePhase, INITIAL_GOAL_STATE, isStrikeContact, transitionGoal } from "../src/game/PoloMechanics";
 
 test("gallop and braking targets remain independent", () => {
@@ -74,6 +74,13 @@ test("horse archetypes scale handling without changing the baseline default", ()
   expect(getBodyLean(1, GALLOP_SPEED, "POWER")).toBeGreaterThan(getBodyLean(1, GALLOP_SPEED, "SPRINTER"));
 });
 
+test("archetype coats remain presentation-only readable variants", () => {
+  expect(getArchetypeCoat("SPRINTER")).toBe("CHESTNUT");
+  expect(getArchetypeCoat("ALL_ROUNDER")).toBe("BAY");
+  expect(getArchetypeCoat("POWER")).toBe("DARK_BAY");
+  expect(Object.keys(HORSE_COATS)).toEqual(["BAY", "DARK_BAY", "CHESTNUT", "LIGHT_GRAY"]);
+});
+
 test("charged shots scale power and aiming changes the impulse direction", () => {
   const weak = getShotImpulse({ aimX: 0, yaw: 0, backhand: false, charge: 0.1, speed: 0 });
   const charged = getShotImpulse({ aimX: 0, yaw: 0, backhand: false, charge: 1, speed: 0 });
@@ -111,4 +118,13 @@ test("loads the playable polo slice without page errors", async ({ page }) => {
   await page.keyboard.press("Space");
   await expect(page.locator("canvas")).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("broadcast HUD renders teams, telemetry, and field radar", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("BLUE", { exact: true })).toBeVisible();
+  await expect(page.getByText("RED", { exact: true })).toBeVisible();
+  await expect(page.getByText("CHUKKER 1", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Field radar")).toBeVisible();
+  await expect(page.getByLabel("Speed and stamina")).toBeVisible();
 });
