@@ -17,12 +17,15 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 const CAPACITY = 12;
 const ENTITY_IDS = ["player", "blue_2", "blue_3", "blue_4", "blue_5", "blue_6", "red_1", "red_2", "red_3", "red_4", "red_5", "red_6"];
 const STARTS = [[0, 28, Math.PI], [-13, 22, Math.PI], [13, 22, Math.PI], [0, 15, Math.PI], [-14, 10, Math.PI], [14, 10, Math.PI], [0, -28, 0], [13, -22, 0], [-13, -22, 0], [0, -15, 0], [14, -10, 0], [-14, -10, 0]];
+const START_BY_ID = new Map(ENTITY_IDS.map((id, index) => [id, STARTS[index]]));
 const POWER_IDS = new Set(["blue_4", "blue_6", "red_4", "red_6"]);
 const SPRINTER_IDS = new Set(["blue_2", "blue_5", "red_1", "red_3"]);
+const STRIKER_IDS = new Set(["blue_2", "blue_3", "blue_5", "red_1", "red_2", "red_3", "red_5"]);
+const MIN_RIDER_SEPARATION = 2.6;
 const gait = speed => speed < .05 ? "IDLE" : speed < 5 ? "WALK" : speed < 11 ? "TROT" : speed < 19 ? "CANTER" : "GALLOP";
 const mass = id => POWER_IDS.has(id) ? 1.3 : SPRINTER_IDS.has(id) ? .85 : 1;
 const angleDelta = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
-const initialState = () => ({ tick: 0, serverTime: Date.now(), ackSequence: 0, entities: ENTITY_IDS.map((id, index) => ({ id, position: { x: STARTS[index][0], z: STARTS[index][1] }, velocity: { x: 0, z: 0 }, heading: STARTS[index][2], gait: "IDLE" })), ball: { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: .65 } });
+const initialState = () => ({ tick: 0, serverTime: Date.now(), ackSequence: 0, started: false, entities: ENTITY_IDS.map((id, index) => ({ id, position: { x: STARTS[index][0], z: STARTS[index][1] }, velocity: { x: 0, z: 0 }, heading: STARTS[index][2], gait: "IDLE" })), ball: { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: .65 } });
 const compress = (state, ackSequence = 0) => [state.tick, state.serverTime, state.entities.map(entity => [entity.id, entity.position.x, entity.position.z, entity.velocity.x, entity.velocity.z, entity.heading, entity.gait]), [state.ball.position.x, state.ball.position.z, state.ball.velocity.x, state.ball.velocity.z, state.ball.y], ackSequence];
 const rooms = new Map();
 let queue = [];
@@ -53,6 +56,7 @@ function startRoom() {
     acks: new Map(),
     processed: new Map(),
     strikes: new Map(),
+    botStrikeCooldowns: new Map(),
     pings: new Map(),
     history: new HistoricalStateBuffer(),
     emptySince: null,
@@ -79,6 +83,7 @@ function startRoom() {
 
 function updateHuman(room, entity, command, delta) {
   const input = command.input ?? {};
+  if (!room.state.started && (Math.abs(input.throttle ?? 0) > .01 || Math.abs(input.steer ?? 0) > .01 || input.strike || input.backhand || input.rideOff)) room.state.started = true;
   const speed = Math.hypot(entity.velocity.x, entity.velocity.z);
   const target = input.brake ? 0 : (input.throttle ?? 0) * (input.gallop ? 30 : 18);
   const next = speed + Math.max(-22 * delta, Math.min(15 * delta, target - speed));
@@ -108,14 +113,36 @@ function updateHuman(room, entity, command, delta) {
   entity.gait = gait(Math.abs(next));
 }
 
-function updateBot(entity, ball, delta) {
-  const dx = ball.position.x - entity.position.x;
-  const dz = ball.position.z - entity.position.z;
-  const desired = Math.atan2(dx, dz);
-  entity.heading += Math.max(-1.3 * delta, Math.min(1.3 * delta, angleDelta(entity.heading, desired)));
-  const speed = POWER_IDS.has(entity.id) ? 3.3 : SPRINTER_IDS.has(entity.id) ? 4.8 : 4;
+const entityTeam = entity => entity.id.startsWith("red_") ? "red" : "blue";
+const ballInPlay = ball => Math.hypot(ball.position.x, ball.position.z) >= 1.2 || Math.hypot(ball.velocity.x, ball.velocity.z) >= .45;
+
+function selectBotChasers(state) {
+  const select = team => state.entities
+    .filter(entity => entity.id !== "player" && entityTeam(entity) === team && STRIKER_IDS.has(entity.id))
+    .sort((a, b) => Math.hypot(a.position.x - state.ball.position.x, a.position.z - state.ball.position.z) - Math.hypot(b.position.x - state.ball.position.x, b.position.z - state.ball.position.z) || a.id.localeCompare(b.id))[0]?.id;
+  return { blue: select("blue"), red: select("red") };
+}
+
+function updateBot(room, entity, chasers, delta) {
+  const team = entityTeam(entity), start = START_BY_ID.get(entity.id), active = room.state.started && ballInPlay(room.state.ball), chaser = active && chasers[team] === entity.id;
+  const shift = POWER_IDS.has(entity.id) ? .16 : .24;
+  const target = !active ? { x: start[0], z: start[1] } : chaser ? room.state.ball.position : { x: start[0] + Math.max(-4, Math.min(4, room.state.ball.position.x * shift)), z: start[1] + Math.max(-5, Math.min(5, room.state.ball.position.z * shift)) };
+  const dx = target.x - entity.position.x, dz = target.z - entity.position.z, distance = Math.hypot(dx, dz);
+  const desired = distance > .01 ? Math.atan2(dx, dz) : entity.heading;
+  entity.heading += Math.max(-1.55 * delta, Math.min(1.55 * delta, angleDelta(entity.heading, desired)));
+  const currentSpeed = Math.hypot(entity.velocity.x, entity.velocity.z), scale = POWER_IDS.has(entity.id) ? .9 : SPRINTER_IDS.has(entity.id) ? 1.2 : 1;
+  const maximum = (chaser ? 7 : 4.2) * scale, desiredSpeed = distance < .35 ? 0 : Math.min(maximum, distance * 1.25);
+  const speed = currentSpeed + Math.max(-8 * delta, Math.min(8 * delta, desiredSpeed - currentSpeed));
   entity.velocity = { x: Math.sin(entity.heading) * speed, z: Math.cos(entity.heading) * speed };
   entity.gait = gait(speed);
+  const cooldown = Math.max(0, (room.botStrikeCooldowns.get(entity.id) ?? 0) - delta);
+  room.botStrikeCooldowns.set(entity.id, cooldown);
+  const toBall = { x: room.state.ball.position.x - entity.position.x, z: room.state.ball.position.z - entity.position.z }, distanceToBall = Math.hypot(toBall.x, toBall.z), facingBall = (toBall.x * Math.sin(entity.heading) + toBall.z * Math.cos(entity.heading)) / (distanceToBall || 1);
+  if (chaser && distanceToBall < 3.4 && facingBall > .72 && cooldown <= 0) {
+    const goalZ = team === "blue" ? -43 : 43, goalDx = -room.state.ball.position.x, goalDz = goalZ - room.state.ball.position.z, goalLength = Math.hypot(goalDx, goalDz) || 1, power = 11 + Math.min(speed * .45, 4);
+    room.state.ball.velocity = { x: goalDx / goalLength * power, z: goalDz / goalLength * power };
+    room.botStrikeCooldowns.set(entity.id, 1.25);
+  }
 }
 
 function applyRideOffs(room, delta, now) {
@@ -123,6 +150,16 @@ function applyRideOffs(room, delta, now) {
   for (let firstIndex = 0; firstIndex < entities.length; firstIndex += 1) for (let secondIndex = firstIndex + 1; secondIndex < entities.length; secondIndex += 1) {
     const first = entities[firstIndex];
     const second = entities[secondIndex];
+    const currentDx = first.position.x - second.position.x, currentDz = first.position.z - second.position.z, currentDistance = Math.hypot(currentDx, currentDz);
+    if (currentDistance < MIN_RIDER_SEPARATION) {
+      const nx = currentDistance > .0001 ? currentDx / currentDistance : first.id.localeCompare(second.id) <= 0 ? -1 : 1;
+      const nz = currentDistance > .0001 ? currentDz / currentDistance : 0;
+      const total = mass(first.id) + mass(second.id), overlap = MIN_RIDER_SEPARATION - currentDistance;
+      first.position.x += nx * overlap * mass(second.id) / total;
+      first.position.z += nz * overlap * mass(second.id) / total;
+      second.position.x -= nx * overlap * mass(first.id) / total;
+      second.position.z -= nz * overlap * mass(first.id) / total;
+    }
     const reportedPing = Math.max(room.pings.get(first.id) ?? 0, room.pings.get(second.id) ?? 0);
     const rewind = evaluateRewoundRideOff(room.history, first.id, second.id, now, reportedPing);
     if (!rewind.valid || !rewind.first || !rewind.second) continue;
@@ -132,12 +169,18 @@ function applyRideOffs(room, delta, now) {
     const nx = dx / distance;
     const nz = dz / distance;
     const total = mass(first.id) + mass(second.id);
-    const penetration = (1.5 - distance) * 12 * delta;
+    const penetration = Math.max(0, 1.5 - distance) * 12 * delta;
     first.position.x += nx * penetration * mass(second.id) / total;
     first.position.z += nz * penetration * mass(second.id) / total;
     second.position.x -= nx * penetration * mass(first.id) / total;
     second.position.z -= nz * penetration * mass(first.id) / total;
   }
+}
+
+function resetSimulation(room) {
+  room.state.ball = { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: .65 };
+  room.state.started = false;
+  room.state.entities.forEach((entity,index)=>{entity.position={x:STARTS[index][0],z:STARTS[index][1]};entity.velocity={x:0,z:0};entity.heading=STARTS[index][2];entity.gait="IDLE";});
 }
 
 const wss = new WebSocketServer({ port: PORT });
@@ -166,6 +209,9 @@ wss.on("connection", socket => {
         room.pings.set(entityId, reportedPingMs);
         room.inputs.set(entityId, { ...message.payload.command, reportedPingMs, receivedAt: Date.now() });
       }
+    } else if (message.type === "RESET_MATCH") {
+      const room=rooms.get(message.payload?.matchId);
+      if(room?.clients.has(socket))resetSimulation(room);
     } else if (message.type === "PING") {
       send(socket, { type: "PONG", payload: { clientTime: Number(message.payload?.clientTime), serverTime: Date.now() } });
     }
@@ -202,6 +248,7 @@ setInterval(() => {
     }
     room.state.tick += 1;
     room.state.serverTime = now;
+    const chasers = selectBotChasers(room.state);
     for (const entity of room.state.entities) {
       const slot = room.slots.get(entity.id);
       const command = room.inputs.get(entity.id);
@@ -210,7 +257,7 @@ setInterval(() => {
         entity.velocity.x *= .85;
         entity.velocity.z *= .85;
         entity.gait = gait(Math.hypot(entity.velocity.x, entity.velocity.z));
-      } else updateBot(entity, room.state.ball, delta);
+      } else updateBot(room, entity, chasers, delta);
       entity.position.x = Math.max(-24, Math.min(24, entity.position.x + entity.velocity.x * delta));
       entity.position.z = Math.max(-39, Math.min(39, entity.position.z + entity.velocity.z * delta));
     }
@@ -219,7 +266,9 @@ setInterval(() => {
     room.state.ball.position.z += room.state.ball.velocity.z * delta;
     room.state.ball.velocity.x *= .985;
     room.state.ball.velocity.z *= .985;
-    if (Math.abs(room.state.ball.position.z) > 42 || Math.abs(room.state.ball.position.x) > 26) room.state.ball = { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: .65 };
+    if (Math.abs(room.state.ball.position.z) > 42 || Math.abs(room.state.ball.position.x) > 26) {
+      resetSimulation(room);
+    }
     room.history.record(room.state, now);
     if (room.state.tick % (SIMULATION_HZ / NETWORK_HZ) === 0) for (const [socket, entityId] of room.clients) send(socket, { type: "STATE_SNAPSHOT", payload: compress(room.state, room.acks.get(entityId) ?? 0) });
   }

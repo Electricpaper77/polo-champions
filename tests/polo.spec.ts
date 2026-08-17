@@ -118,7 +118,7 @@ test("loads the playable polo slice without page errors", async ({ page }) => {
   await page.goto("/");
   await enterMatch(page);
   await expect(page.getByText("POLO CHAMPIONS")).toBeVisible();
-  await expect(page.getByText("YOUR GOALS")).toBeVisible();
+  await expect(page.getByText("ROYAL GUARD", { exact: true })).toBeVisible();
   await page.keyboard.press("KeyW");
   await page.keyboard.press("Space");
   await expect(page.locator("canvas")).toBeVisible();

@@ -54,10 +54,10 @@ export function PoloEntity({ entity, action = "NONE", motion }: { entity: PoloRi
   });
 
   return <group ref={root} name={`polo-entity-${entity.id}`}>
-    <primitive object={horse} scale={0.86} rotation={[0, Math.PI, 0]} position={[0, 0, 0]} />
+    <primitive object={horse} scale={0.86} position={[0, 0, 0]} />
     <mesh position={[0, 1.42, -0.08]} castShadow><boxGeometry args={[0.84, 0.1, 1.1]} /><meshStandardMaterial color="#3D2314" roughness={0.76} /></mesh>
     <group ref={riderPivot} position={[0, 1.44, -0.04]}>
-      <primitive object={rider} scale={0.72} position={[0, 0, 0]} rotation={[0, Math.PI, 0]} />
+      <primitive object={rider} scale={0.72} position={[0, 0, 0]} />
       <mesh position={[0, 1.36, 0]} castShadow><sphereGeometry args={[0.26, 20, 12, 0, Math.PI * 2, 0, Math.PI / 1.7]} /><meshPhysicalMaterial color={entity.team === "blue" ? "#f7f5ef" : "#8B1E1E"} roughness={0.18} clearcoat={0.75} /></mesh>
       <Text position={[0, 0.7, -0.32]} rotation={[0, Math.PI, 0]} fontSize={0.28} color="#f8f2e3">{entity.id === "player" ? "3" : entity.id.split("_")[1]}</Text>
       <group ref={mallet} position={[0.48, 0.78, 0.64]} rotation={[0, 0, 0.25]}>

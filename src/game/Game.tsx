@@ -7,7 +7,7 @@ import { useInput, type Input } from "./InputManager";
 import { initializeMatchEntities, useMatch } from "./GameState";
 import { advanceHorseSpeed, advanceStamina, getBodyLean, getGait, getSteeringRate, type HorseArchetype } from "./HorseControls";
 import { canApplyStrike, getBallResetState, getMalletAngle, getShotImpulse, getStrikePhase, INITIAL_GOAL_STATE, transitionGoal } from "./PoloMechanics";
-import { decideBot, isLineOfBallFoul, rideOffImpulse, type Bot } from "./MatchRules";
+import { advanceBotRider, applyRideOffDisplacement, getBotShotImpulse, getBotTacticalTarget, isBallInPlay, isLineOfBallFoul, resolveRiderSeparation, scoringTeam, selectBallChasers, type Bot } from "./MatchRules";
 import { CareerStatsManager } from "../services/CareerStats";
 import { PoloEntity } from "./PoloEntity";
 import { PitchEnvironment } from "./PitchEnvironment";
@@ -24,9 +24,8 @@ const ACTIVE_ARCHETYPE: HorseArchetype = "ALL_ROUNDER";
 export function FoulToast({ active }: { active: boolean }) { return active ? <div className="foul-toast" role="alert">FOUL: LINE OF BALL CROSSING</div> : null; }
 export function playerControlNotice(change: PlayerControlChange) { return change.state === "AI_BACKFILL" ? `Player '${change.playerName}' disconnected. AI taking over.` : `Player '${change.playerName}' reconnected.`; }
 function NetworkNotice(){const [message,setMessage]=useState("");const timer=useRef<ReturnType<typeof setTimeout>|null>(null);useEffect(()=>{const show=(value:string)=>{setMessage(value);if(timer.current)clearTimeout(timer.current);timer.current=setTimeout(()=>setMessage(""),4_000)};const offControl=networkManager.on("playerControl",change=>show(playerControlNotice(change)));const offStatus=networkManager.on("status",status=>{if(status.state==="DISCONNECTED")show("Connection lost. AI is protecting your rider while reconnecting.")});return()=>{offControl();offStatus();if(timer.current)clearTimeout(timer.current)}},[]);return message?<div className="network-toast" role="alert">{message}</div>:null}
-function AllRiderRadar(){const riders=useMatch(s=>s.entities);return <div className="all-rider-radar" aria-label="All rider radar">{Object.values(riders).map(rider=><i key={rider.id} className={rider.team} style={{left:`${50+rider.position.x/FIELD_X*90}%`,top:`${50-rider.position.y/FIELD_Z*90}%`}}/>)}</div>}
-function CareerMatchEnd(){const seconds=useMatch(s=>s.seconds),score=useMatch(s=>s.score),recorded=useRef(false);useEffect(()=>{if(seconds===0&&!recorded.current){recorded.current=true;CareerStatsManager.recordMatch({won:score>0,goals:score,rideOffs:0});matchTelemetry.completeMatch()}},[seconds,score]);return null}
-function Ball({api}:{api:React.MutableRefObject<RapierRigidBody|null>}){const key=useMatch(s=>s.resetKey);useEffect(()=>{const reset=getBallResetState();api.current?.setTranslation(reset.position,true);api.current?.setLinvel(reset.velocity,true)},[key,api]);return <RigidBody ref={api} colliders="ball" restitution={.72} friction={.55} position={[0,.65,0]}><mesh castShadow><sphereGeometry args={[.42,20,16]}/><meshStandardMaterial color="#f8f4e8" roughness={.45}/></mesh></RigidBody>}
+function CareerMatchEnd(){const seconds=useMatch(s=>s.seconds),score=useMatch(s=>s.score),recorded=useRef(false);useEffect(()=>{if(seconds===0&&!recorded.current){recorded.current=true;CareerStatsManager.recordMatch({won:score.blue>score.red,goals:score.blue,rideOffs:0});matchTelemetry.completeMatch()}},[seconds,score]);return null}
+function Ball({api}:{api:React.MutableRefObject<RapierRigidBody|null>}){const key=useMatch(s=>s.resetKey);useEffect(()=>{const reset=getBallResetState();api.current?.setTranslation(reset.position,true);api.current?.setLinvel(reset.velocity,true);api.current?.setAngvel({x:0,y:0,z:0},true)},[key,api]);return <RigidBody ref={api} colliders="ball" ccd linearDamping={.42} angularDamping={.72} restitution={.46} friction={.68} position={[0,.65,0]}><mesh castShadow><sphereGeometry args={[.42,20,16]}/><meshStandardMaterial color="#f8f4e8" roughness={.45}/></mesh></RigidBody>}
 
 const NETWORK_ENTITY_IDS: PoloRiderEntity["id"][] = ["player", "blue_2", "blue_3", "blue_4", "blue_5", "blue_6", "red_1", "red_2", "red_3", "red_4", "red_5", "red_6"];
 
@@ -62,8 +61,21 @@ function RealtimeHorse({ ball, input }: { ball: React.RefObject<RapierRigidBody 
   const latestCommand = useRef<InputCommand | null>(null);
   const loop = useRef(new FixedTimestepLoop(60, 20));
   const paused = useMatch(state => state.paused);
+  const resetKey = useMatch(state => state.resetKey);
   const setMessage = useMatch(state => state.setMessage);
   const setTelemetry = useMatch(state => state.setTelemetry);
+
+  useEffect(() => {
+    const reset = initializeMatchEntities()[assignedId];
+    position.current.set(reset.position.x,0,reset.position.y);
+    yaw.current=reset.heading;
+    speed.current=0;
+    stamina.current=1;
+    charge.current=0;
+    strikeClock.current=-1;
+    group.current?.position.copy(position.current);
+    if(group.current)group.current.rotation.y=yaw.current;
+  },[assignedId,resetKey]);
 
   useEffect(() => networkManager.on("snapshot", snapshot => {
     const authoritative = snapshot.entities.find(entity => entity.id === assignedId);
@@ -85,6 +97,11 @@ function RealtimeHorse({ ball, input }: { ball: React.RefObject<RapierRigidBody 
     if (!group.current || paused) return;
     loop.current.advance(frameDelta, delta => {
       const currentInput = input.current;
+      const currentStore = useMatch.getState();
+      const external = currentStore.entities[assignedId];
+      if (Math.hypot(external.position.x-position.current.x,external.position.y-position.current.z)>.01) position.current.set(external.position.x,0,external.position.y);
+      const hasPlayerIntent = Math.abs(currentInput.throttle)>.01 || Math.abs(currentInput.steer)>.01 || currentInput.strike || currentInput.backhand || currentInput.rideOff;
+      if (!currentStore.started && hasPlayerIntent) { currentStore.setStarted(true); setMessage("PLAY"); }
       const combos = getPlayerCombos(currentInput);
       if (combos.powerStrike) powerStrikeArmed.current = true;
       const utilityAction = combos.defensiveMark ? "DEFENSIVE MARK LOCKED"
@@ -169,6 +186,7 @@ function RealtimeBots({ ball }: { ball: React.RefObject<RapierRigidBody | null> 
   const remoteIds = NETWORK_ENTITY_IDS.filter(id => id !== assignedId);
   const groups = useRef<Record<string, THREE.Group | null>>({});
   const buffer = useRef(new SnapshotBuffer());
+  const strikeCooldowns = useRef<Record<string,number>>({});
   const entities = useMatch(state => state.entities);
 
   useEffect(() => {
@@ -207,28 +225,38 @@ function RealtimeBots({ ball }: { ball: React.RefObject<RapierRigidBody | null> 
     }
 
     const ballPosition = ball.current?.translation() ?? { x: 0, z: 0 };
+    const ballVelocity = ball.current?.linvel() ?? { x: 0, z: 0 };
     const next = cloneEntities(store.entities);
     const toBot = (entity: PoloRiderEntity): Bot => ({ id: entity.id, team: entity.team.toUpperCase() as "BLUE" | "RED", role: entity.role === "striker" ? "ATTACKER" : "PIVOT", archetype: entity.archetype, position: { x: entity.position.x, z: entity.position.y }, facing: { x: Math.sin(entity.heading), z: Math.cos(entity.heading) } });
+    const tacticalRiders=remoteIds.map(id=>next[id]);
+    const ballVector={x:ballPosition.x,z:ballPosition.z};
+    const activePlay=store.started&&isBallInPlay(ballVector,{x:ballVelocity.x,z:ballVelocity.z});
+    const chasers=selectBallChasers(tacticalRiders,ballVector);
     for (const id of remoteIds) {
-      const entity = next[id];
-      const decision = decideBot(toBot(entity), { x: ballPosition.x, z: ballPosition.z }, toBot(next[assignedId]));
-      const dx = ballPosition.x - entity.position.x;
-      const dz = ballPosition.z - entity.position.y;
-      const length = Math.hypot(dx, dz) || 1;
-      const rate = decision === "ZONE_DEFEND" ? 2.2 : 4;
-      entity.velocity = { x: dx / length * rate, y: dz / length * rate };
-      entity.position.x += entity.velocity.x * delta;
-      entity.position.y += entity.velocity.y * delta;
-      entity.heading = Math.atan2(dx, dz);
+      const entity=next[id],chaser=activePlay&&chasers[entity.team]===id;
+      const target=getBotTacticalTarget(entity,ballVector,chasers,activePlay);
+      next[id]=advanceBotRider(entity,target,chaser,delta);
+      next[id].position.x=THREE.MathUtils.clamp(next[id].position.x,-24,24);
+      next[id].position.y=THREE.MathUtils.clamp(next[id].position.y,-39,39);
+      strikeCooldowns.current[id]=Math.max(0,(strikeCooldowns.current[id]??0)-delta);
+      const toBall={x:ballPosition.x-next[id].position.x,z:ballPosition.z-next[id].position.y};
+      const facing={x:Math.sin(next[id].heading),z:Math.cos(next[id].heading)};
+      const facingBall=(toBall.x*facing.x+toBall.z*facing.z)/(Math.hypot(toBall.x,toBall.z)||1);
+      if(chaser&&Math.hypot(toBall.x,toBall.z)<3.4&&facingBall>.72&&strikeCooldowns.current[id]<=0&&ball.current){
+        ball.current.applyImpulse(getBotShotImpulse(next[id],ballVector),true);
+        strikeCooldowns.current[id]=1.25;
+        store.setMessage(`${next[id].team.toUpperCase()} CLEARANCE`);
+      }
     }
     for (let first = 0; first < NETWORK_ENTITY_IDS.length; first += 1) for (let second = first + 1; second < NETWORK_ENTITY_IDS.length; second += 1) {
       const a = next[NETWORK_ENTITY_IDS[first]], b = next[NETWORK_ENTITY_IDS[second]];
-      const dx = a.position.x - b.position.x, dz = a.position.y - b.position.y, length = Math.hypot(dx, dz);
-      if (length <= 0 || length >= 1.5) continue;
-      const normal = { x: dx / length, z: dz / length };
-      const pushA = rideOffImpulse(toBot(a), toBot(b)), pushB = rideOffImpulse(toBot(b), toBot(a));
-      a.position.x += normal.x * pushB * delta; a.position.y += normal.z * pushB * delta;
-      b.position.x -= normal.x * pushA * delta; b.position.y -= normal.z * pushA * delta;
+      const separation=resolveRiderSeparation(a,b);
+      if(!separation.corrected)continue;
+      a.position={x:separation.a.x,y:separation.a.z};
+      b.position={x:separation.b.x,y:separation.b.z};
+      const rideOff=applyRideOffDisplacement(toBot(a),toBot(b),delta);
+      a.position={x:rideOff.a.x,y:rideOff.a.z};
+      b.position={x:rideOff.b.x,y:rideOff.b.z};
     }
     const velocity = ball.current?.linvel();
     if (velocity && Math.hypot(velocity.x, velocity.z) > .5) for (const id of remoteIds) {
@@ -248,6 +276,8 @@ function RealtimeBots({ ball }: { ball: React.RefObject<RapierRigidBody | null> 
 
   return <>{remoteIds.map(id => <group key={id} ref={element => { groups.current[id] = element; }} position={[entities[id].position.x, 0, entities[id].position.y]}><Suspense fallback={null}><PoloEntity entity={entities[id]} /></Suspense></group>)}</>;
 }
-function Scene({input}:{input:React.RefObject<Input>}){const ball=useRef<RapierRigidBody>(null);const score=useMatch(s=>s.scoreGoal),paused=useMatch(s=>s.paused),goalState=useRef(INITIAL_GOAL_STATE);useFrame(()=>{const p=ball.current?.translation();if(!paused&&p){const result=transitionGoal(goalState.current,p);goalState.current=result.state;if(result.scored)score()}});return <><color attach="background" args={["#b9d5dd"]}/><fog attach="fog" args={["#b9d5dd",45,125]}/><PitchEnvironment width={FIELD_X} length={FIELD_Z}/><Physics gravity={[0,-9.81,0]} timeStep={1/60} updateLoop="independent" interpolate><RigidBody type="fixed" colliders="cuboid" position={[0,-.25,0]}><mesh visible={false}><boxGeometry args={[FIELD_X, .5, FIELD_Z]}/></mesh></RigidBody><Ball api={ball}/></Physics><RealtimeHorse ball={ball} input={input}/><RealtimeBots ball={ball}/><Suspense fallback={null}><Environment preset="park" /></Suspense></>}
-function Hud(){const s=useMatch(),t=s.telemetry;const mm=`${String(Math.floor(s.seconds/60)).padStart(2,"0")}:${String(s.seconds%60).padStart(2,"0")}`,radar=(v:{x:number;z:number})=>({left:`${50+v.x/FIELD_X*90}%`,top:`${50-v.z/FIELD_Z*90}%`});return <div className="hud"><header className="broadcast"><div className="team blue"><b>BLUE</b><small>YOUR GOALS</small><strong>{s.score}</strong></div><div className="match"><small>CHUKKER 1</small><strong>{mm}</strong><em>POLO CHAMPIONS</em></div><div className="team red"><strong>0</strong><b>RED</b></div><button onClick={s.restart}>RESTART</button></header><div className="archetype">{ACTIVE_ARCHETYPE.replace("_"," ")} · {t.gait}</div><div className="notice">{s.message}</div>{s.activeFoul&&<div className="foul-toast" role="alert">FOUL: LINE OF BALL CROSSING</div>}<section className="radar" aria-label="Field radar"><b>FIELD RADAR</b><i className="pip player" style={radar(t.player)}/><i className="pip ball" style={radar(t.ball)}/><i className="pip opponent" style={radar({x:9,z:-12})}/></section><section className="telemetry" aria-label="Speed and stamina"><div className="speed"><strong>{Math.round(t.speed*3.6)}</strong><small>KM/H</small></div><b>{t.gait}</b><label>STAMINA <span><i style={{width:`${t.stamina*100}%`}}/></span></label></section>{t.strikePhase==="WIND_UP"&&<section className="swing" aria-label="Swing charge">SWING POWER <span><i style={{width:`${t.charge*100}%`}}/></span></section>}<footer aria-label="PC controls"><b>WASD</b> Ride <b>LMB</b> Swing <b>RMB</b> Ride-off <b>SHIFT</b> Sprint <b>CTRL</b> Collect <b>SPACE</b> Focus <b>Q/E</b> Pass <b>R+LMB</b> Power <b>F+RMB</b> Mark <b>V</b> Look back <b>MMB/WHEEL</b> Camera <b>ESC</b> Pause</footer>{s.paused&&<div className="pause" role="dialog" aria-label="Pause menu">PAUSED<br/><button onClick={s.togglePause}>RESUME</button></div>}</div>}
-export function Game(){const setSec=useMatch(s=>s.setSeconds),paused=useMatch(s=>s.paused),toggle=useMatch(s=>s.togglePause),reset=useMatch(s=>s.resetBall),input=useInput(paused);useEffect(()=>{const entities=initializeMatchEntities(),match=networkManager.getActiveMatch();if(match)for(const remote of match.initialState.entities){const current=entities[remote.id];entities[remote.id]={...current,position:{x:remote.position.x,y:remote.position.z},velocity:{x:remote.velocity.x,y:remote.velocity.z},heading:remote.heading};}useMatch.getState().setEntities(entities)},[]);useEffect(()=>{const t=setInterval(()=>{if(!paused)setSec(Math.max(0,useMatch.getState().seconds-1))},1000);const p=()=>toggle(),r=()=>reset();window.addEventListener("polo-pause",p);window.addEventListener("polo-reset",r);return()=>{clearInterval(t);window.removeEventListener("polo-pause",p);window.removeEventListener("polo-reset",r)}},[paused,setSec,toggle,reset]);return <main><Canvas shadows camera={{fov:54,position:[0,8,25]}}><Scene input={input}/></Canvas><Hud/><NetworkNotice/><AllRiderRadar/><CareerMatchEnd/></main>}
+function Scene({input}:{input:React.RefObject<Input>}){const ball=useRef<RapierRigidBody>(null);const score=useMatch(s=>s.scoreGoal),paused=useMatch(s=>s.paused),started=useMatch(s=>s.started),goalState=useRef(INITIAL_GOAL_STATE);useFrame(()=>{const p=ball.current?.translation();if(!paused&&started&&p){const result=transitionGoal(goalState.current,p);goalState.current=result.state;const team=result.scored?scoringTeam({x:p.x,z:p.z}):null;if(team)score(team)}});return <><color attach="background" args={["#b9d5dd"]}/><fog attach="fog" args={["#b9d5dd",45,125]}/><PitchEnvironment width={FIELD_X} length={FIELD_Z}/><Physics gravity={[0,-9.81,0]} timeStep={1/60} updateLoop="independent" interpolate><RigidBody type="fixed" colliders="cuboid" position={[0,-.25,0]}><mesh visible={false}><boxGeometry args={[FIELD_X, .5, FIELD_Z]}/></mesh></RigidBody><Ball api={ball}/></Physics><RealtimeHorse ball={ball} input={input}/><RealtimeBots ball={ball}/><Suspense fallback={null}><Environment preset="park" /></Suspense></>}
+function FieldRadar(){const entities=useMatch(s=>s.entities),ball=useMatch(s=>s.telemetry.ball),radar=(v:{x:number;z:number})=>({left:`${50+v.x/FIELD_X*90}%`,top:`${50-v.z/FIELD_Z*90}%`});return <section className="radar" aria-label="Field radar"><b>FIELD RADAR · 12 RIDERS</b>{Object.values(entities).map(rider=><i key={rider.id} title={rider.id} className={`pip rider ${rider.team} ${rider.id==="player"?"player":""}`} style={radar({x:rider.position.x,z:rider.position.y})}/>)}<i className="pip ball" title="ball" style={radar(ball)}/></section>}
+function restartMatch(){networkManager.requestMatchReset();useMatch.getState().restart()}
+function Hud(){const s=useMatch(),t=s.telemetry;const mm=`${String(Math.floor(s.seconds/60)).padStart(2,"0")}:${String(s.seconds%60).padStart(2,"0")}`;return <div className="hud"><header className="broadcast"><div className="team blue"><b>BLUE</b><small>ROYAL GUARD</small><strong>{s.score.blue}</strong></div><div className="match"><small>CHUKKER 1</small><strong>{mm}</strong><em>POLO CHAMPIONS</em><small>{s.started?"LIVE":"AWAITING KICK OFF"}</small></div><div className="team red"><strong>{s.score.red}</strong><small>SCARLET WOLVES</small><b>RED</b></div><button onClick={restartMatch}>RESTART</button></header><div className="archetype">{ACTIVE_ARCHETYPE.replace("_"," ")} · {t.gait}</div><div className="notice">{s.message}</div>{s.activeFoul&&<div className="foul-toast" role="alert">FOUL: LINE OF BALL CROSSING</div>}<FieldRadar/><section className="telemetry" aria-label="Speed and stamina"><div className="speed"><strong>{Math.round(t.speed*3.6)}</strong><small>KM/H</small></div><b>{t.gait}</b><label>STAMINA <span><i style={{width:`${t.stamina*100}%`}}/></span></label></section>{t.strikePhase==="WIND_UP"&&<section className="swing" aria-label="Swing charge">SWING POWER <span><i style={{width:`${t.charge*100}%`}}/></span></section>}<footer aria-label="PC controls"><b>WASD</b> Ride <b>LMB</b> Swing <b>RMB</b> Ride-off <b>SHIFT</b> Sprint <b>CTRL</b> Collect <b>SPACE</b> Focus <b>Q/E</b> Pass <b>R+LMB</b> Power <b>F+RMB</b> Mark <b>V</b> Look back <b>MMB/WHEEL</b> Camera <b>ESC</b> Pause</footer>{s.paused&&<div className="pause" role="dialog" aria-label="Pause menu">PAUSED<br/><button onClick={s.togglePause}>RESUME</button></div>}</div>}
+export function Game(){const setSec=useMatch(s=>s.setSeconds),paused=useMatch(s=>s.paused),started=useMatch(s=>s.started),toggle=useMatch(s=>s.togglePause),reset=useMatch(s=>s.resetBall),input=useInput(paused);useEffect(()=>{const entities=initializeMatchEntities(),match=networkManager.getActiveMatch();if(match)for(const remote of match.initialState.entities){const current=entities[remote.id];entities[remote.id]={...current,position:{x:remote.position.x,y:remote.position.z},velocity:{x:remote.velocity.x,y:remote.velocity.z},heading:remote.heading};}useMatch.getState().setEntities(entities)},[]);useEffect(()=>{const t=setInterval(()=>{if(!paused&&started)setSec(Math.max(0,useMatch.getState().seconds-1))},1000);const p=()=>toggle(),r=()=>{networkManager.requestMatchReset();reset()};window.addEventListener("polo-pause",p);window.addEventListener("polo-reset",r);return()=>{clearInterval(t);window.removeEventListener("polo-pause",p);window.removeEventListener("polo-reset",r)}},[paused,started,setSec,toggle,reset]);return <main><Canvas shadows camera={{fov:54,position:[0,8,25]}}><Scene input={input}/></Canvas><Hud/><NetworkNotice/><CareerMatchEnd/></main>}

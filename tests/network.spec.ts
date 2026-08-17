@@ -42,6 +42,8 @@ test("mock websocket room broadcasts canonical 12-entity state and accepts assig
   expect(manager.sendInput(command(1))).toBe(true);
   const inputMessage = JSON.parse(socket.sent.at(-1)!);
   expect(inputMessage).toMatchObject({ type: "INPUT", payload: { matchId: "room-1", entityId: "player", command: { sequence: 1 } } });
+  expect(manager.requestMatchReset()).toBe(true);
+  expect(JSON.parse(socket.sent.at(-1)!)).toEqual({type:"RESET_MATCH",payload:{matchId:"room-1"}});
   manager.disconnect();
 });
 
@@ -166,11 +168,11 @@ test("client prediction applies input immediately and reconciliation consumes ac
   expect(prediction.pendingCount()).toBe(0);
 });
 
-test("live realtime server assigns a canonical room and broadcasts advancing snapshots", async ({ page }) => {
+test("live realtime server holds formation until intent and broadcasts advancing snapshots", async ({ page }) => {
   await page.goto("/");
-  const result = await page.evaluate(() => new Promise<{ entities: number; firstTick: number; secondTick: number; assigned: string }>((resolve, reject) => {
+  const result = await page.evaluate(() => new Promise<{ entities: number; firstTick: number; secondTick: number; assigned: string; idleDrift:number }>((resolve, reject) => {
     const socket = new WebSocket("ws://127.0.0.1:8080");
-    let entities = 0, assigned = "", firstTick = -1;
+    let entities = 0, assigned = "", matchId="", firstTick = -1, idleDrift=0, initialPositions:number[][]=[];
     const timeout = window.setTimeout(() => { socket.close(); reject(new Error("Realtime room timed out")); }, 7_000);
     socket.onopen = () => socket.send(JSON.stringify({ type: "JOIN_QUEUE", payload: { playerName: "NETWORK_TEST", mode: "6V6" } }));
     socket.onerror = () => { window.clearTimeout(timeout); reject(new Error("Realtime socket failed")); };
@@ -179,20 +181,26 @@ test("live realtime server assigns a canonical room and broadcasts advancing sna
       if (message.type === "MATCH_START") {
         entities = message.payload.initialState[2].length;
         assigned = message.payload.assignedEntityId;
-        socket.send(JSON.stringify({ type: "INPUT", payload: { matchId: message.payload.matchId, entityId: assigned, command: { sequence: 1, clientTime: Date.now(), input: { throttle: 1, steer: 0, gallop: true, brake: false, strike: false, backhand: false, aimX: 0 } } } }));
+        matchId=message.payload.matchId;
+        initialPositions=message.payload.initialState[2].map((entity:unknown[])=>[Number(entity[1]),Number(entity[2])]);
       }
       if (message.type === "STATE_SNAPSHOT") {
         const tick = message.payload[0];
-        if (firstTick < 0) firstTick = tick;
+        if (firstTick < 0) {
+          firstTick = tick;
+          idleDrift=Math.max(...message.payload[2].map((entity:unknown[],index:number)=>Math.hypot(Number(entity[1])-initialPositions[index][0],Number(entity[2])-initialPositions[index][1])));
+          socket.send(JSON.stringify({ type: "INPUT", payload: { matchId, entityId: assigned, command: { sequence: 1, clientTime: Date.now(), input: { throttle: 1, steer: 0, gallop: true, brake: false, strike: false, backhand: false, aimX: 0 } } } }));
+        }
         else if (tick > firstTick) {
           window.clearTimeout(timeout);
           socket.close();
-          resolve({ entities, firstTick, secondTick: tick, assigned });
+          resolve({ entities, firstTick, secondTick: tick, assigned, idleDrift });
         }
       }
     };
   }));
   expect(result.entities).toBe(12);
   expect(result.assigned).toBeTruthy();
+  expect(result.idleDrift).toBeLessThan(.001);
   expect(result.secondTick).toBeGreaterThan(result.firstTick);
 });

@@ -16,6 +16,7 @@ type ClientMessage =
   | { type: "JOIN_QUEUE"; payload: { playerName: string; mode: "6V6" } }
   | { type: "RECONNECT"; payload: { matchId: string; reconnectToken: string } }
   | { type: "PING"; payload: { clientTime: number } }
+  | { type: "RESET_MATCH"; payload: { matchId: string } }
   | { type: "INPUT"; payload: { matchId: string; entityId: PoloRiderEntity["id"]; command: InputCommand } };
 type NetworkEvents = {
   status: { state: "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "OFFLINE"; detail?: string };
@@ -175,6 +176,10 @@ export class NetworkManager {
   sendInput(command: InputCommand): boolean {
     if (!this.activeMatch) return false;
     return this.send({ type: "INPUT", payload: { matchId: this.activeMatch.matchId, entityId: this.activeMatch.assignedEntityId, command: { ...command, reportedPingMs: this.currentPingMs } } });
+  }
+
+  requestMatchReset(): boolean {
+    return this.activeMatch ? this.send({ type: "RESET_MATCH", payload: { matchId: this.activeMatch.matchId } }) : false;
   }
 
   private send(message: ClientMessage): boolean {
