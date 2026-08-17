@@ -6,7 +6,7 @@ export type NetworkVector = { x: number; z: number };
 export type NetworkEntityState = { id: PoloRiderEntity["id"]; position: NetworkVector; velocity: NetworkVector; heading: number; gait: Gait };
 export type NetworkBallState = { position: NetworkVector; velocity: NetworkVector; y: number };
 export type NetworkSnapshot = { tick: number; serverTime: number; ackSequence: number; entities: NetworkEntityState[]; ball: NetworkBallState };
-export type InputCommand = { sequence: number; clientTime: number; input: Pick<Input,"throttle"|"steer"|"gallop"|"brake"|"strike"|"power"|"backhand"|"aimX"> };
+export type InputCommand = { sequence: number; clientTime: number; reportedPingMs?: number; input: Pick<Input,"throttle"|"steer"|"gallop"|"brake"|"strike"|"power"|"backhand"|"aimX"> };
 
 export type CompressedSnapshot = [number, number, Array<[PoloRiderEntity["id"],number,number,number,number,number,Gait]>, [number,number,number,number,number], number];
 
@@ -49,10 +49,13 @@ export class SnapshotBuffer {
   clear(){this.snapshots=[]}
 }
 
-export function reconcileLocalEntity(predicted:NetworkEntityState,authoritative:NetworkEntityState,delta=1/60):NetworkEntityState{
+export type ReconciliationPolicy = { deadZone: number; rubberBandThreshold: number; maxCorrectionPerStep: number; smoothing: number };
+export const DEFAULT_RECONCILIATION_POLICY: ReconciliationPolicy = { deadZone:.02, rubberBandThreshold:5, maxCorrectionPerStep:.75, smoothing:9 };
+
+export function reconcileLocalEntity(predicted:NetworkEntityState,authoritative:NetworkEntityState,delta=1/60,policy=DEFAULT_RECONCILIATION_POLICY):NetworkEntityState{
   const distance=Math.hypot(predicted.position.x-authoritative.position.x,predicted.position.z-authoritative.position.z);
-  if(distance<.02)return predicted;
-  const correction=distance>5?1:1-Math.exp(-9*delta);
+  if(distance<policy.deadZone)return predicted;
+  const correction=distance>policy.rubberBandThreshold?Math.min(.35,policy.maxCorrectionPerStep/distance):1-Math.exp(-policy.smoothing*delta);
   return interpolateEntity(predicted,authoritative,correction);
 }
 

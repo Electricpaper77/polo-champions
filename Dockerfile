@@ -8,7 +8,7 @@ COPY server/package.json server/package-lock.json ./server/
 RUN npm ci --prefix server --omit=dev --ignore-scripts --no-audit --no-fund \
     && npm cache clean --force
 
-COPY --chown=node:node server/realtime-server.mjs ./server/realtime-server.mjs
+COPY --chown=node:node server/realtime-server.mjs server/MatchManager.mjs ./server/
 
 USER node
 EXPOSE 8080

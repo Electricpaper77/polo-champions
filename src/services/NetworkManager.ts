@@ -1,21 +1,29 @@
 import { createInitialNetworkSnapshot, decompressSnapshot, type CompressedSnapshot, type InputCommand, type NetworkSnapshot } from "../game/NetworkSync";
 import type { PoloRiderEntity } from "../game/GameState";
+import { matchTelemetry } from "./Telemetry";
 
-export type MatchStartPayload = { matchId: string; assignedEntityId: PoloRiderEntity["id"]; initialState: NetworkSnapshot; mode: "WEBSOCKET" | "BOT_BACKFILL" };
+export type MatchStartPayload = { matchId: string; assignedEntityId: PoloRiderEntity["id"]; reconnectToken: string | null; initialState: NetworkSnapshot; mode: "WEBSOCKET" | "BOT_BACKFILL" };
+export type PlayerControlChange = { entityId: PoloRiderEntity["id"]; playerName: string; state: "AI_BACKFILL" | "RECONNECTED"; reconnectDeadline?: number };
 type QueueStatus = { players: number; capacity: number; roomId: string };
 type ServerMessage =
   | { type: "QUEUE_STATUS"; payload: QueueStatus }
   | { type: "MATCH_START"; payload: Omit<MatchStartPayload, "initialState"> & { initialState: CompressedSnapshot } }
   | { type: "STATE_SNAPSHOT"; payload: CompressedSnapshot }
+  | { type: "PLAYER_CONTROL_CHANGED"; payload: PlayerControlChange }
+  | { type: "PONG"; payload: { clientTime: number; serverTime: number } }
   | { type: "ERROR"; payload: { message: string } };
 type ClientMessage =
   | { type: "JOIN_QUEUE"; payload: { playerName: string; mode: "6V6" } }
+  | { type: "RECONNECT"; payload: { matchId: string; reconnectToken: string } }
+  | { type: "PING"; payload: { clientTime: number } }
   | { type: "INPUT"; payload: { matchId: string; entityId: PoloRiderEntity["id"]; command: InputCommand } };
 type NetworkEvents = {
   status: { state: "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "OFFLINE"; detail?: string };
   queue: QueueStatus;
   match: MatchStartPayload;
   snapshot: NetworkSnapshot;
+  playerControl: PlayerControlChange;
+  latency: { pingMs: number; serverTime: number };
   error: { message: string };
 };
 
@@ -54,11 +62,14 @@ export class NetworkManager {
   private connectPromise: Promise<void> | null = null;
   private listeners = new Map<keyof NetworkEvents, Set<(payload: never) => void>>();
   private activeMatch: MatchStartPayload | null = null;
+  private resumableMatch: MatchStartPayload | null = null;
   private queued = false;
   private shouldReconnect = false;
   private everConnected = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private latencyTimer: ReturnType<typeof setInterval> | null = null;
+  private currentPingMs = 0;
   private lastPlayerName: string | null = null;
   private readonly baseDelayMs: number;
   private readonly maxDelayMs: number;
@@ -106,9 +117,12 @@ export class NetworkManager {
           this.everConnected = true;
           this.reconnectAttempt = 0;
           this.connectPromise = null;
+          this.startLatencyProbe();
           this.emit("status", { state: "CONNECTED", detail: reconnecting ? "Realtime connection restored" : undefined });
           resolve();
-          if (reconnecting && this.lastPlayerName && !this.activeMatch) {
+          if (reconnecting && this.resumableMatch?.reconnectToken) {
+            this.send({ type: "RECONNECT", payload: { matchId: this.resumableMatch.matchId, reconnectToken: this.resumableMatch.reconnectToken } });
+          } else if (reconnecting && this.lastPlayerName && !this.activeMatch) {
             this.queued = false;
             this.requestRoom(this.lastPlayerName);
           }
@@ -127,8 +141,10 @@ export class NetworkManager {
           if (this.socket === socket) this.socket = null;
           this.connectPromise = null;
           this.queued = false;
+          this.clearLatencyProbe();
           if (!this.shouldReconnect) return;
-          this.activeMatch = null;
+          if (this.activeMatch?.mode === "WEBSOCKET") this.resumableMatch = this.activeMatch;
+          else this.activeMatch = null;
           this.emit("status", { state: "DISCONNECTED", detail: "Realtime connection lost" });
           this.scheduleReconnect();
         };
@@ -158,7 +174,7 @@ export class NetworkManager {
 
   sendInput(command: InputCommand): boolean {
     if (!this.activeMatch) return false;
-    return this.send({ type: "INPUT", payload: { matchId: this.activeMatch.matchId, entityId: this.activeMatch.assignedEntityId, command } });
+    return this.send({ type: "INPUT", payload: { matchId: this.activeMatch.matchId, entityId: this.activeMatch.assignedEntityId, command: { ...command, reportedPingMs: this.currentPingMs } } });
   }
 
   private send(message: ClientMessage): boolean {
@@ -175,8 +191,19 @@ export class NetworkManager {
         const match = { ...message.payload, initialState: decompressSnapshot(message.payload.initialState) };
         this.queued = false;
         this.activeMatch = match;
+        this.resumableMatch = null;
+        matchTelemetry.startMatch(match.matchId);
         this.emit("match", match);
       } else if (message.type === "STATE_SNAPSHOT") this.emit("snapshot", decompressSnapshot(message.payload));
+      else if (message.type === "PLAYER_CONTROL_CHANGED") {
+        if (message.payload.state === "AI_BACKFILL") matchTelemetry.recordAIBackfill();
+        this.emit("playerControl", message.payload);
+      } else if (message.type === "PONG") {
+        const pingMs = Math.max(0, Date.now() - message.payload.clientTime);
+        this.currentPingMs = pingMs;
+        matchTelemetry.recordPing(pingMs);
+        this.emit("latency", { pingMs, serverTime: message.payload.serverTime });
+      }
       else if (message.type === "ERROR") this.emit("error", message.payload);
     } catch {
       this.emit("error", { message: "Malformed realtime server message" });
@@ -198,6 +225,18 @@ export class NetworkManager {
     this.reconnectTimer = null;
   }
 
+  private startLatencyProbe() {
+    this.clearLatencyProbe();
+    const ping = () => this.send({ type: "PING", payload: { clientTime: Date.now() } });
+    ping();
+    this.latencyTimer = setInterval(ping, 5_000);
+  }
+
+  private clearLatencyProbe() {
+    if (this.latencyTimer) clearInterval(this.latencyTimer);
+    this.latencyTimer = null;
+  }
+
   startBotBackfilledMatch(): MatchStartPayload {
     if (this.activeMatch) return this.activeMatch;
     this.shouldReconnect = false;
@@ -206,8 +245,10 @@ export class NetworkManager {
     this.socket = null;
     this.connectPromise = null;
     this.queued = false;
-    const match: MatchStartPayload = { matchId: `local-${Date.now()}`, assignedEntityId: "player", initialState: createInitialNetworkSnapshot(Date.now()), mode: "BOT_BACKFILL" };
+    const match: MatchStartPayload = { matchId: `local-${Date.now()}`, assignedEntityId: "player", reconnectToken: null, initialState: createInitialNetworkSnapshot(Date.now()), mode: "BOT_BACKFILL" };
     this.activeMatch = match;
+    this.resumableMatch = null;
+    matchTelemetry.startMatch(match.matchId);
     this.emit("status", { state: "OFFLINE", detail: "Local authoritative bot session" });
     this.emit("queue", { players: 12, capacity: 12, roomId: match.matchId });
     this.emit("match", match);
@@ -215,10 +256,12 @@ export class NetworkManager {
   }
 
   getActiveMatch() { return this.activeMatch; }
+  getCurrentPing() { return this.currentPingMs; }
 
   disconnect() {
     this.shouldReconnect = false;
     this.clearReconnectTimer();
+    this.clearLatencyProbe();
     this.socket?.close(1000, "client disconnect");
     this.socket = null;
     this.connectPromise = null;
@@ -232,6 +275,8 @@ export class NetworkManager {
     this.everConnected = false;
     this.reconnectAttempt = 0;
     this.lastPlayerName = null;
+    this.resumableMatch = null;
+    this.currentPingMs = 0;
   }
 }
 

@@ -28,7 +28,7 @@ test("mock websocket room broadcasts canonical 12-entity state and accepts assig
 
   expect(manager.requestRoom("POLOPLAYER1")).toBe(true);
   expect(manager.requestRoom("POLOPLAYER1")).toBe(false);
-  expect(socket.sent.map(value => JSON.parse(value).type)).toEqual(["JOIN_QUEUE"]);
+  expect(socket.sent.map(value => JSON.parse(value).type)).toEqual(["PING", "JOIN_QUEUE"]);
 
   const initial = createInitialNetworkSnapshot(10_000);
   let started = false;
@@ -37,7 +37,7 @@ test("mock websocket room broadcasts canonical 12-entity state and accepts assig
     expect(match.assignedEntityId).toBe("player");
     expect(match.initialState.entities).toHaveLength(12);
   });
-  socket.serverSend({ type: "MATCH_START", payload: { matchId: "room-1", assignedEntityId: "player", initialState: compressSnapshot(initial), mode: "WEBSOCKET" } });
+  socket.serverSend({ type: "MATCH_START", payload: { matchId: "room-1", assignedEntityId: "player", reconnectToken: "resume-1", initialState: compressSnapshot(initial), mode: "WEBSOCKET" } });
   expect(started).toBe(true);
   expect(manager.sendInput(command(1))).toBe(true);
   const inputMessage = JSON.parse(socket.sent.at(-1)!);
@@ -71,9 +71,36 @@ test("unexpected disconnect reconnects with backoff and restores the queued play
 
   await expect.poll(() => sockets.length).toBe(2);
   sockets[1].open();
-  await expect.poll(() => sockets[1].sent.length).toBe(1);
-  expect(JSON.parse(sockets[1].sent[0])).toEqual({ type: "JOIN_QUEUE", payload: { playerName: "POLOPLAYER1", mode: "6V6" } });
+  await expect.poll(() => sockets[1].sent.length).toBe(2);
+  expect(JSON.parse(sockets[1].sent[1])).toEqual({ type: "JOIN_QUEUE", payload: { playerName: "POLOPLAYER1", mode: "6V6" } });
   expect(states).toEqual(expect.arrayContaining(["DISCONNECTED", "CONNECTING", "CONNECTED"]));
+  manager.disconnect();
+});
+
+test("active match reconnect presents the server-issued token and reclaims the same entity", async () => {
+  const sockets: MockSocket[] = [];
+  const manager = new NetworkManager("ws://mock", () => {
+    const socket = new MockSocket();
+    sockets.push(socket);
+    return socket;
+  }, { baseDelayMs: 5, maxDelayMs: 20 });
+
+  const connected = manager.connect();
+  sockets[0].open();
+  await connected;
+  const initial = createInitialNetworkSnapshot(20_000);
+  sockets[0].serverSend({ type: "MATCH_START", payload: { matchId: "room-resume", assignedEntityId: "blue_3", reconnectToken: "server-token", initialState: compressSnapshot(initial), mode: "WEBSOCKET" } });
+  expect(manager.getActiveMatch()?.assignedEntityId).toBe("blue_3");
+
+  sockets[0].drop();
+  expect(manager.getActiveMatch()?.assignedEntityId).toBe("blue_3");
+  await expect.poll(() => sockets.length).toBe(2);
+  sockets[1].open();
+  await expect.poll(() => sockets[1].sent.length).toBe(2);
+  expect(JSON.parse(sockets[1].sent[1])).toEqual({ type: "RECONNECT", payload: { matchId: "room-resume", reconnectToken: "server-token" } });
+
+  sockets[1].serverSend({ type: "MATCH_START", payload: { matchId: "room-resume", assignedEntityId: "blue_3", reconnectToken: "server-token", initialState: compressSnapshot(initial), mode: "WEBSOCKET" } });
+  expect(manager.getActiveMatch()?.assignedEntityId).toBe("blue_3");
   manager.disconnect();
 });
 
