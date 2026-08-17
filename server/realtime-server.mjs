@@ -89,15 +89,17 @@ function updateHuman(room, entity, command, delta) {
   if (command.sequence > lastProcessed) {
     room.processed.set(entity.id, command.sequence);
     room.acks.set(entity.id, command.sequence);
-    const holding = Boolean(input.strike || input.power || input.backhand);
-    const strike = room.strikes.get(entity.id) ?? { holding: false, startedAt: command.clientTime, backhand: false, aimX: 0 };
-    if (holding && !strike.holding) room.strikes.set(entity.id, { holding: true, startedAt: command.clientTime, backhand: Boolean(input.backhand), aimX: Number(input.aimX ?? 0) });
+    const holding = Boolean(input.strike || input.backhand);
+    const strike = room.strikes.get(entity.id) ?? { holding: false, startedAt: command.clientTime, backhand: false, aimX: 0, power: false };
+    if (holding && !strike.holding) room.strikes.set(entity.id, { holding: true, startedAt: command.clientTime, backhand: Boolean(input.backhand), aimX: Number(input.aimX ?? 0), power: Boolean(input.power) });
+    else if (holding) room.strikes.set(entity.id, { ...strike, aimX: Number(input.aimX ?? strike.aimX), power: strike.power || Boolean(input.power) });
     if (!holding && strike.holding) {
-      room.strikes.set(entity.id, { holding: false, startedAt: command.clientTime, backhand: false, aimX: 0 });
+      room.strikes.set(entity.id, { holding: false, startedAt: command.clientTime, backhand: false, aimX: 0, power: false });
       const rewind = evaluateRewoundStrike(room.history, entity.id, command.receivedAt, command.reportedPingMs);
       if (rewind.valid) {
-        const charge = Math.max(.1, Math.min(1, (command.clientTime - strike.startedAt) / 900));
-        const aim = entity.heading + strike.aimX * .38 + (strike.backhand ? Math.PI : 0);
+        const charge = Math.max(.1, Math.min(1, (command.clientTime - strike.startedAt) / 900)) * (strike.power ? 1.5 : 1);
+        const releasedAimX = Number(input.aimX ?? strike.aimX);
+        const aim = entity.heading + releasedAimX * .38 + (strike.backhand ? Math.PI : 0);
         const impulse = 12 + charge * 16 + Math.abs(next) * .18;
         room.state.ball.velocity = { x: Math.sin(aim) * impulse, z: Math.cos(aim) * impulse };
       }

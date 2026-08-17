@@ -22,6 +22,7 @@ export function canApplyStrike(phase: StrikePhase, alreadyApplied: boolean) {
 
 export type ShotInput = {
   aimX: number;
+  aimY?: number;
   yaw: number;
   backhand: boolean;
   charge: number;
@@ -29,7 +30,7 @@ export type ShotInput = {
   archetype?: HorseArchetype;
 };
 
-export function getShotImpulse({ aimX, yaw, backhand, charge, speed, archetype = "ALL_ROUNDER" }: ShotInput) {
+export function getShotImpulse({ aimX, aimY = 0, yaw, backhand, charge, speed, archetype = "ALL_ROUNDER" }: ShotInput) {
   const localX = aimX * 0.7;
   const magnitude = Math.hypot(localX, 1);
   const direction = {
@@ -42,7 +43,8 @@ export function getShotImpulse({ aimX, yaw, backhand, charge, speed, archetype =
   }
   const momentum = Math.min(Math.abs(speed) * .75 * getHorseArchetype(archetype).mass, 18);
   const power = 7 + charge * 17 + momentum;
-  return { x: direction.x * power, y: 2 + charge * 3, z: direction.z * power, power };
+  const loft = Math.max(.5, 2 + charge * 3 + aimY * 1.25);
+  return { x: direction.x * power, y: loft, z: direction.z * power, power };
 }
 
 export function getMalletAngle(angle: number, holding: boolean, released: boolean, dt: number) {
