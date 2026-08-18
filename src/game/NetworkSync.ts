@@ -6,7 +6,7 @@ export type NetworkVector = { x: number; z: number };
 export type NetworkEntityState = { id: PoloRiderEntity["id"]; position: NetworkVector; velocity: NetworkVector; heading: number; gait: Gait };
 export type NetworkBallState = { position: NetworkVector; velocity: NetworkVector; y: number };
 export type NetworkSnapshot = { tick: number; serverTime: number; ackSequence: number; entities: NetworkEntityState[]; ball: NetworkBallState };
-export type InputCommand = { sequence: number; clientTime: number; reportedPingMs?: number; input: Pick<Input,"throttle"|"steer"|"gallop"|"brake"|"strike"|"power"|"backhand"|"aimX"> & Partial<Pick<Input,"aimY">> };
+export type InputCommand = { sequence: number; clientTime: number; reportedPingMs?: number; input: Pick<Input,"throttle"|"steer"|"gallop"|"brake"|"strike"|"power"|"backhand"|"aimX"> & Partial<Pick<Input,"aimY"|"rideOff">> };
 
 export type CompressedSnapshot = [number, number, Array<[PoloRiderEntity["id"],number,number,number,number,number,Gait]>, [number,number,number,number,number], number];
 

@@ -1,14 +1,16 @@
 import { createInitialNetworkSnapshot, decompressSnapshot, type CompressedSnapshot, type InputCommand, type NetworkSnapshot } from "../game/NetworkSync";
-import type { PoloRiderEntity } from "../game/GameState";
+import type { MatchScore, MatchTeam, PoloRiderEntity } from "../game/GameState";
 import { matchTelemetry } from "./Telemetry";
 
 export type MatchStartPayload = { matchId: string; assignedEntityId: PoloRiderEntity["id"]; reconnectToken: string | null; initialState: NetworkSnapshot; mode: "WEBSOCKET" | "BOT_BACKFILL" };
 export type PlayerControlChange = { entityId: PoloRiderEntity["id"]; playerName: string; state: "AI_BACKFILL" | "RECONNECTED"; reconnectDeadline?: number };
+export type GoalScored = { team: MatchTeam; score: MatchScore; celebrationMs: number };
 type QueueStatus = { players: number; capacity: number; roomId: string };
 type ServerMessage =
   | { type: "QUEUE_STATUS"; payload: QueueStatus }
   | { type: "MATCH_START"; payload: Omit<MatchStartPayload, "initialState"> & { initialState: CompressedSnapshot } }
   | { type: "STATE_SNAPSHOT"; payload: CompressedSnapshot }
+  | { type: "GOAL_SCORED"; payload: GoalScored }
   | { type: "PLAYER_CONTROL_CHANGED"; payload: PlayerControlChange }
   | { type: "PONG"; payload: { clientTime: number; serverTime: number } }
   | { type: "ERROR"; payload: { message: string } };
@@ -23,6 +25,7 @@ type NetworkEvents = {
   queue: QueueStatus;
   match: MatchStartPayload;
   snapshot: NetworkSnapshot;
+  goal: GoalScored;
   playerControl: PlayerControlChange;
   latency: { pingMs: number; serverTime: number };
   error: { message: string };
@@ -200,6 +203,7 @@ export class NetworkManager {
         matchTelemetry.startMatch(match.matchId);
         this.emit("match", match);
       } else if (message.type === "STATE_SNAPSHOT") this.emit("snapshot", decompressSnapshot(message.payload));
+      else if (message.type === "GOAL_SCORED") this.emit("goal", message.payload);
       else if (message.type === "PLAYER_CONTROL_CHANGED") {
         if (message.payload.state === "AI_BACKFILL") matchTelemetry.recordAIBackfill();
         this.emit("playerControl", message.payload);

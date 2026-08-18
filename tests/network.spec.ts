@@ -40,11 +40,26 @@ test("mock websocket room broadcasts canonical 12-entity state and accepts assig
   });
   socket.serverSend({ type: "MATCH_START", payload: { matchId: "room-1", assignedEntityId: "player", reconnectToken: "resume-1", initialState: compressSnapshot(initial), mode: "WEBSOCKET" } });
   expect(started).toBe(true);
-  expect(manager.sendInput(command(1))).toBe(true);
+  const rideOffCommand=command(1);
+  rideOffCommand.input.rideOff=true;
+  expect(manager.sendInput(rideOffCommand)).toBe(true);
   const inputMessage = JSON.parse(socket.sent.at(-1)!);
-  expect(inputMessage).toMatchObject({ type: "INPUT", payload: { matchId: "room-1", entityId: "player", command: { sequence: 1 } } });
+  expect(inputMessage).toMatchObject({ type: "INPUT", payload: { matchId: "room-1", entityId: "player", command: { sequence: 1, input:{rideOff:true} } } });
   expect(manager.requestMatchReset()).toBe(true);
   expect(JSON.parse(socket.sent.at(-1)!)).toEqual({type:"RESET_MATCH",payload:{matchId:"room-1"}});
+  manager.disconnect();
+});
+
+test("authoritative goal events preserve team, score, and celebration duration", async () => {
+  let socket!: MockSocket;
+  const manager = new NetworkManager("ws://mock", () => (socket = new MockSocket()));
+  const connected = manager.connect();
+  socket.open();
+  await connected;
+  let received:unknown;
+  manager.on("goal", goal => received=goal);
+  socket.serverSend({type:"GOAL_SCORED",payload:{team:"blue",score:{blue:2,red:1},celebrationMs:1_800}});
+  expect(received).toEqual({team:"blue",score:{blue:2,red:1},celebrationMs:1_800});
   manager.disconnect();
 });
 
