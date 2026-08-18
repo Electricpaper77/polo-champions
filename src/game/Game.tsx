@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useInput, type Input } from "./InputManager";
 import { initializeMatchEntities, useMatch } from "./GameState";
-import { advanceHorseSpeed, advanceStamina, getBodyLean, getGait, getSteeringRate, type HorseArchetype } from "./HorseControls";
+import { advanceStamina, getBodyLean, getGait, integrateHorseMotion, MAX_GALLOP_SPEED, type HorseArchetype } from "./HorseControls";
 import { canApplyStrike, getBallResetState, getMalletAngle, getShotImpulse, getStrikePhase, INITIAL_GOAL_STATE, transitionGoal } from "./PoloMechanics";
 import { advanceBotRider, applyRideOffDisplacement, getBotShotImpulse, getBotTacticalTarget, isBallInPlay, isLineOfBallFoul, resolveRiderSeparation, scoringTeam, selectBallChasers, type Bot } from "./MatchRules";
 import { CareerStatsManager } from "../services/CareerStats";
@@ -41,6 +41,7 @@ function RealtimeHorse({ ball, input }: { ball: React.RefObject<RapierRigidBody 
   const group = useRef<THREE.Group>(null);
   const motion = useRef({ turn: 0, braking: false });
   const position = useRef(new THREE.Vector3(start.position.x, 0, start.position.y));
+  const velocity = useRef(new THREE.Vector3(0, 0, 0));
   const yaw = useRef(start.heading);
   const speed = useRef(0);
   const stamina = useRef(1);
@@ -68,11 +69,14 @@ function RealtimeHorse({ ball, input }: { ball: React.RefObject<RapierRigidBody 
   useEffect(() => {
     const reset = initializeMatchEntities()[assignedId];
     position.current.set(reset.position.x,0,reset.position.y);
+    velocity.current.set(0,0,0);
     yaw.current=reset.heading;
     speed.current=0;
     stamina.current=1;
     charge.current=0;
     strikeClock.current=-1;
+    latestCommand.current=null;
+    loop.current.reset();
     group.current?.position.copy(position.current);
     if(group.current)group.current.rotation.y=yaw.current;
   },[assignedId,resetKey]);
@@ -83,12 +87,13 @@ function RealtimeHorse({ ball, input }: { ball: React.RefObject<RapierRigidBody 
     const predicted: NetworkEntityState = {
       id: assignedId,
       position: { x: position.current.x, z: position.current.z },
-      velocity: { x: Math.sin(yaw.current) * speed.current, z: Math.cos(yaw.current) * speed.current },
+      velocity: { x: velocity.current.x, z: velocity.current.z },
       heading: yaw.current,
       gait: getGait(Math.abs(speed.current)),
     };
     const corrected = reconcileLocalEntity(predicted, authoritative);
     position.current.set(corrected.position.x, 0, corrected.position.z);
+    velocity.current.set(corrected.velocity.x, 0, corrected.velocity.z);
     yaw.current = corrected.heading;
     speed.current = Math.hypot(corrected.velocity.x, corrected.velocity.z);
   }), [assignedId]);
@@ -101,6 +106,7 @@ function RealtimeHorse({ ball, input }: { ball: React.RefObject<RapierRigidBody 
       const external = currentStore.entities[assignedId];
       if (Math.hypot(external.position.x-position.current.x,external.position.y-position.current.z)>.01) position.current.set(external.position.x,0,external.position.y);
       const hasPlayerIntent = Math.abs(currentInput.throttle)>.01 || Math.abs(currentInput.steer)>.01 || currentInput.strike || currentInput.backhand || currentInput.rideOff;
+      const frozenAtKickoff = !currentStore.started && !hasPlayerIntent;
       if (!currentStore.started && hasPlayerIntent) { currentStore.setStarted(true); setMessage("PLAY"); }
       const combos = getPlayerCombos(currentInput);
       if (combos.powerStrike) powerStrikeArmed.current = true;
@@ -114,22 +120,35 @@ function RealtimeHorse({ ball, input }: { ball: React.RefObject<RapierRigidBody 
       lastUtilityAction.current = utilityAction;
       motion.current = { turn: currentInput.steer, braking: currentInput.brake };
       const canGallop = currentInput.gallop && stamina.current > 0;
-      speed.current = advanceHorseSpeed(speed.current, { ...currentInput, gallop: canGallop }, delta, ACTIVE_ARCHETYPE);
+      const activeArchetype = cosmetics.archetype ?? ACTIVE_ARCHETYPE;
+      if (frozenAtKickoff) {
+        velocity.current.set(0,0,0);
+        speed.current=0;
+        latestCommand.current=null;
+      } else {
+        const next = integrateHorseMotion({
+          position:{x:position.current.x,z:position.current.z},
+          velocity:{x:velocity.current.x,z:velocity.current.z},
+          heading:yaw.current,
+        }, {...currentInput,gallop:canGallop}, delta, activeArchetype);
+        position.current.set(next.position.x,0,next.position.z);
+        velocity.current.set(next.velocity.x,0,next.velocity.z);
+        yaw.current=next.heading;
+        speed.current=velocity.current.length();
+      }
       const gait = getGait(speed.current);
-      stamina.current = advanceStamina(stamina.current, gait === "GALLOP" && canGallop, delta, ACTIVE_ARCHETYPE);
-      yaw.current += currentInput.steer * getSteeringRate(speed.current, ACTIVE_ARCHETYPE) * delta * (speed.current >= 0 ? 1 : -1);
+      stamina.current = advanceStamina(stamina.current, gait === "GALLOP" && canGallop, delta, activeArchetype);
       const forward = new THREE.Vector3(Math.sin(yaw.current), 0, Math.cos(yaw.current));
-      position.current.addScaledVector(forward, speed.current * delta);
       position.current.x = THREE.MathUtils.clamp(position.current.x, -24, 24);
       position.current.z = THREE.MathUtils.clamp(position.current.z, -39, 39);
 
       const store = useMatch.getState();
       const local = store.entities[assignedId];
-      store.setEntities({ ...store.entities, [assignedId]: { ...local, position: { x: position.current.x, y: position.current.z }, velocity: { x: forward.x * speed.current, y: forward.z * speed.current }, heading: yaw.current, stamina: stamina.current } });
+      store.setEntities({ ...store.entities, [assignedId]: { ...local, position: { x: position.current.x, y: position.current.z }, velocity: { x: velocity.current.x, y: velocity.current.z }, heading: yaw.current, stamina: stamina.current } });
       group.current?.position.copy(position.current);
       if (group.current) {
         group.current.rotation.y = yaw.current;
-        group.current.rotation.z = THREE.MathUtils.damp(group.current.rotation.z, getBodyLean(currentInput.steer, speed.current, ACTIVE_ARCHETYPE), 9, delta);
+        group.current.rotation.z = THREE.MathUtils.damp(group.current.rotation.z, getBodyLean(currentInput.steer, speed.current, activeArchetype), 9, delta);
       }
 
       const holding = currentInput.strike || currentInput.backhand;
@@ -150,7 +169,7 @@ function RealtimeHorse({ ball, input }: { ball: React.RefObject<RapierRigidBody 
         const ballPosition = ball.current.translation();
         const distance = new THREE.Vector3(ballPosition.x, 0, ballPosition.z).sub(position.current);
         if (distance.length() < 5) {
-          ball.current.applyImpulse(getShotImpulse({ aimX: releasedAim.current.x, aimY: releasedAim.current.y, yaw: yaw.current, backhand: releasedBackhand.current, charge: releasedCharge.current, speed: speed.current, archetype: ACTIVE_ARCHETYPE }), true);
+          ball.current.applyImpulse(getShotImpulse({ aimX: releasedAim.current.x, aimY: releasedAim.current.y, yaw: yaw.current, backhand: releasedBackhand.current, charge: releasedCharge.current, speed: speed.current, archetype: activeArchetype }), true);
           cooldown.current = .38;
           setMessage(powerStrikeArmed.current ? "POWER STRIKE!" : releasedBackhand.current ? "BACKHAND!" : "CLEAN STRIKE!");
         }
@@ -163,10 +182,10 @@ function RealtimeHorse({ ball, input }: { ball: React.RefObject<RapierRigidBody 
       const offset = getAdvancedCameraOffset(yaw.current, speed.current, currentInput.steer, cameraDistance.current, currentInput.lookBack);
       const desired = position.current.clone().add(new THREE.Vector3(offset.x, offset.y, offset.z));
       const look = position.current.clone().addScaledVector(forward, offset.lookAhead);
-      state.camera.position.lerp(desired, 1 - Math.exp(-delta * (5 + Math.min(Math.abs(speed.current) / 24, 1) * 2)));
+      state.camera.position.lerp(desired, 1 - Math.exp(-delta * (5 + Math.min(Math.abs(speed.current) / MAX_GALLOP_SPEED, 1) * 2)));
       state.camera.lookAt(look.x, look.y + 1, look.z);
 
-      latestCommand.current = { sequence: ++sequence.current, clientTime: Date.now(), input: { throttle: currentInput.throttle, steer: currentInput.steer, gallop: canGallop, brake: currentInput.brake, strike: currentInput.strike, power: combos.powerStrike, backhand: currentInput.backhand, aimX: currentInput.aimX, aimY: currentInput.aimY } };
+      if (!frozenAtKickoff) latestCommand.current = { sequence: ++sequence.current, clientTime: Date.now(), input: { throttle: currentInput.throttle, steer: currentInput.steer, gallop: canGallop, brake: currentInput.brake, strike: currentInput.strike, power: combos.powerStrike, backhand: currentInput.backhand, aimX: currentInput.aimX, aimY: currentInput.aimY } };
       telemetryClock.current += delta;
       if (telemetryClock.current > .08) {
         telemetryClock.current = 0;

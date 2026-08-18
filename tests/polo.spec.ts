@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { advanceHorseSpeed, advanceStamina, BRAKE_SPEED, GALLOP_SPEED, getArchetypeCoat, getBodyLean, getCameraOffset, getGait, getHorseArchetype, getRiderPose, getSteeringRate, getTargetSpeed, HORSE_COATS, NORMAL_RIDE_SPEED } from "../src/game/HorseControls";
+import { ACCELERATION_TAU, advanceHorseSpeed, advanceStamina, BRAKE_SPEED, BRAKE_TAU, COAST_TAU, exponentialAlpha, GALLOP_GAIT_THRESHOLD, GALLOP_SPEED, getArchetypeCoat, getBodyLean, getCameraOffset, getGait, getHorseArchetype, getRiderPose, getSteeringRate, getTargetSpeed, HORSE_COATS, integrateHorseMotion, MAX_GALLOP_SPEED, NORMAL_RIDE_SPEED, steeringRate } from "../src/game/HorseControls";
 import { canApplyStrike, getBallResetState, getMalletAngle, getShotImpulse, getStrikePhase, INITIAL_GOAL_STATE, isStrikeContact, transitionGoal } from "../src/game/PoloMechanics";
 import { applyRideOffDisplacement, create2v2, decideBot, goalResult, isLineOfBallFoul, legalRideOff, rideOffImpulse } from "../src/game/MatchRules";
 import { FoulToast } from "../src/game/Game";
@@ -34,6 +34,38 @@ test("riding response accelerates, coasts, brakes, and retains speed-sensitive c
   expect(getBodyLean(1, GALLOP_SPEED)).toBeLessThan(0);
 });
 
+test("momentum constants, exponential response, and gait threshold are canonical", () => {
+  expect(MAX_GALLOP_SPEED).toBe(18.05);
+  expect(GALLOP_SPEED).toBe(MAX_GALLOP_SPEED);
+  expect(ACCELERATION_TAU).toBe(1.5);
+  expect(COAST_TAU).toBe(1);
+  expect(BRAKE_TAU).toBe(.45);
+  expect(exponentialAlpha(1, ACCELERATION_TAU)).toBeCloseTo(1-Math.exp(-1/1.5), 12);
+  expect(GALLOP_GAIT_THRESHOLD).toBeCloseTo(13.5375, 8);
+  expect(getGait(GALLOP_GAIT_THRESHOLD-.001)).toBe("CANTER");
+  expect(getGait(GALLOP_GAIT_THRESHOLD)).toBe("GALLOP");
+});
+
+test("vector integrator accelerates by delta time, preserves directional momentum, and clamps speed", () => {
+  const input={throttle:1,gallop:true,brake:false,steer:0};
+  const start={position:{x:0,z:0},velocity:{x:0,z:0},heading:0};
+  let sixty=start,oneTwenty=start;
+  for(let tick=0;tick<60;tick+=1)sixty=integrateHorseMotion(sixty,input,1/60);
+  for(let tick=0;tick<120;tick+=1)oneTwenty=integrateHorseMotion(oneTwenty,input,1/120);
+  const expected=MAX_GALLOP_SPEED*(1-Math.exp(-1/ACCELERATION_TAU));
+  expect(Math.hypot(sixty.velocity.x,sixty.velocity.z)).toBeCloseTo(expected,10);
+  expect(Math.hypot(oneTwenty.velocity.x,oneTwenty.velocity.z)).toBeCloseTo(expected,10);
+  for(let tick=0;tick<600;tick+=1)sixty=integrateHorseMotion(sixty,input,1/60);
+  expect(Math.hypot(sixty.velocity.x,sixty.velocity.z)).toBeLessThanOrEqual(MAX_GALLOP_SPEED);
+
+  const turning=integrateHorseMotion({position:{x:0,z:0},velocity:{x:0,z:MAX_GALLOP_SPEED},heading:0},{...input,steer:1},1/60);
+  const velocityHeading=Math.atan2(turning.velocity.x,turning.velocity.z);
+  expect(velocityHeading).toBeGreaterThan(0);
+  expect(velocityHeading).toBeLessThan(turning.heading);
+  expect(steeringRate(MAX_GALLOP_SPEED)).toBeCloseTo(.55,12);
+  expect(steeringRate(MAX_GALLOP_SPEED)).toBeLessThan(steeringRate(0));
+});
+
 test("camera anticipates turns and the mallet winds up before impact", () => {
   const straight = getCameraOffset(0, 0, 0);
   const gallopingTurn = getCameraOffset(0, GALLOP_SPEED, 1);
@@ -48,7 +80,7 @@ test("camera anticipates turns and the mallet winds up before impact", () => {
 });
 
 test("five gait thresholds, stamina, and rider pose are deterministic", () => {
-  expect([0, 3, 8, 14, 22].map(getGait)).toEqual(["IDLE", "WALK", "TROT", "CANTER", "GALLOP"]);
+  expect([0, 3, 8, 12, 14].map(getGait)).toEqual(["IDLE", "WALK", "TROT", "CANTER", "GALLOP"]);
   expect(advanceStamina(1, true, 1)).toBeLessThan(1);
   expect(advanceStamina(.5, false, 1)).toBeGreaterThan(.5);
   expect(getRiderPose("GALLOP", 0, false).torsoPitch).toBeLessThan(getRiderPose("WALK", 0, false).torsoPitch);

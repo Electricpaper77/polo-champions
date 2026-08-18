@@ -1,5 +1,5 @@
 import type { Input } from "./InputManager";
-import { getGait, type Gait } from "./HorseControls";
+import { getGait, integrateHorseMotion, type Gait, type HorseArchetype } from "./HorseControls";
 import { initializeMatchEntities, type PoloRiderEntity } from "./GameState";
 
 export type NetworkVector = { x: number; z: number };
@@ -9,6 +9,11 @@ export type NetworkSnapshot = { tick: number; serverTime: number; ackSequence: n
 export type InputCommand = { sequence: number; clientTime: number; reportedPingMs?: number; input: Pick<Input,"throttle"|"steer"|"gallop"|"brake"|"strike"|"power"|"backhand"|"aimX"> & Partial<Pick<Input,"aimY">> };
 
 export type CompressedSnapshot = [number, number, Array<[PoloRiderEntity["id"],number,number,number,number,number,Gait]>, [number,number,number,number,number], number];
+
+const NETWORK_ARCHETYPE_BY_ID: Record<PoloRiderEntity["id"], HorseArchetype> = {
+  player:"ALL_ROUNDER", blue_2:"SPRINTER", blue_3:"ALL_ROUNDER", blue_4:"POWER", blue_5:"SPRINTER", blue_6:"POWER",
+  red_1:"SPRINTER", red_2:"ALL_ROUNDER", red_3:"SPRINTER", red_4:"POWER", red_5:"ALL_ROUNDER", red_6:"POWER",
+};
 
 export function createInitialNetworkSnapshot(serverTime = 0): NetworkSnapshot {
   const entities = Object.values(initializeMatchEntities()).map(entity => ({ id:entity.id, position:{x:entity.position.x,z:entity.position.y}, velocity:{x:entity.velocity.x,z:entity.velocity.y}, heading:entity.heading, gait:"IDLE" as Gait }));
@@ -25,11 +30,8 @@ export function decompressSnapshot(value: CompressedSnapshot): NetworkSnapshot {
 }
 
 export function predictLocalEntity(entity: NetworkEntityState, command: InputCommand, delta = 1/60): NetworkEntityState {
-  const turnRate = 1.8 * (1-Math.min(Math.hypot(entity.velocity.x,entity.velocity.z)/32,.58));
-  const heading = entity.heading + command.input.steer*turnRate*delta;
-  const currentSpeed=Math.hypot(entity.velocity.x,entity.velocity.z),target=command.input.brake?0:command.input.throttle*(command.input.gallop?30:18),maxChange=(target>currentSpeed?15:22)*delta,speed=currentSpeed+Math.max(-maxChange,Math.min(maxChange,target-currentSpeed));
-  const velocity={x:Math.sin(heading)*speed,z:Math.cos(heading)*speed};
-  return {...entity,heading,velocity,position:{x:entity.position.x+velocity.x*delta,z:entity.position.z+velocity.z*delta},gait:getGait(Math.abs(speed))};
+  const next = integrateHorseMotion(entity, command.input, delta, NETWORK_ARCHETYPE_BY_ID[entity.id]);
+  return {...entity,...next,gait:getGait(Math.hypot(next.velocity.x,next.velocity.z))};
 }
 
 function lerpAngle(a:number,b:number,t:number){const delta=Math.atan2(Math.sin(b-a),Math.cos(b-a));return a+delta*t}

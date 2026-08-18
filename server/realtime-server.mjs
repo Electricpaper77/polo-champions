@@ -15,6 +15,12 @@ const SIMULATION_HZ = 60;
 const NETWORK_HZ = 20;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const CAPACITY = 12;
+const NORMAL_RIDE_SPEED = 16;
+const MAX_GALLOP_SPEED = 18.05;
+const ACCELERATION_TAU = 1.5;
+const COAST_TAU = 1.0;
+const BRAKE_TAU = 0.45;
+const GALLOP_GAIT_THRESHOLD = MAX_GALLOP_SPEED * .75;
 const ENTITY_IDS = ["player", "blue_2", "blue_3", "blue_4", "blue_5", "blue_6", "red_1", "red_2", "red_3", "red_4", "red_5", "red_6"];
 const STARTS = [[0, 28, Math.PI], [-13, 22, Math.PI], [13, 22, Math.PI], [0, 15, Math.PI], [-14, 10, Math.PI], [14, 10, Math.PI], [0, -28, 0], [13, -22, 0], [-13, -22, 0], [0, -15, 0], [14, -10, 0], [-14, -10, 0]];
 const START_BY_ID = new Map(ENTITY_IDS.map((id, index) => [id, STARTS[index]]));
@@ -22,8 +28,56 @@ const POWER_IDS = new Set(["blue_4", "blue_6", "red_4", "red_6"]);
 const SPRINTER_IDS = new Set(["blue_2", "blue_5", "red_1", "red_3"]);
 const STRIKER_IDS = new Set(["blue_2", "blue_3", "blue_5", "red_1", "red_2", "red_3", "red_5"]);
 const MIN_RIDER_SEPARATION = 2.6;
-const gait = speed => speed < .05 ? "IDLE" : speed < 5 ? "WALK" : speed < 11 ? "TROT" : speed < 19 ? "CANTER" : "GALLOP";
+const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
+const lerp = (from, to, amount) => from + (to - from) * amount;
+const exponentialAlpha = (dt, tau) => dt <= 0 ? 0 : 1 - Math.exp(-dt / Math.max(tau, Number.EPSILON));
+const steeringRate = (speed, agility = 1) => {
+  const ratio = clamp(Math.abs(speed) / MAX_GALLOP_SPEED, 0, 1);
+  const penalty = ratio * ratio * (3 - 2 * ratio);
+  return lerp(1.5, .55, penalty) * agility;
+};
+const gait = speed => speed < .2 ? "IDLE" : speed < 5 ? "WALK" : speed < 11 ? "TROT" : speed < GALLOP_GAIT_THRESHOLD ? "CANTER" : "GALLOP";
 const mass = id => POWER_IDS.has(id) ? 1.3 : SPRINTER_IDS.has(id) ? .85 : 1;
+const archetypeTuning = id => POWER_IDS.has(id)
+  ? { acceleration:.9, topSpeed:.9, agility:.85 }
+  : SPRINTER_IDS.has(id)
+    ? { acceleration:1.2, topSpeed:1.2, agility:1.15 }
+    : { acceleration:1, topSpeed:1, agility:1 };
+const targetSpeed = (input, tuning) => {
+  if (input.brake) return 0;
+  const throttle = Number(input.throttle ?? 0);
+  const requested = throttle > 0
+    ? throttle * (input.gallop ? MAX_GALLOP_SPEED : NORMAL_RIDE_SPEED) * tuning.topSpeed
+    : throttle * NORMAL_RIDE_SPEED * tuning.topSpeed;
+  return clamp(requested, -MAX_GALLOP_SPEED, MAX_GALLOP_SPEED);
+};
+const integrateHorseMotion = (entity, input, delta) => {
+  const safeDelta = Math.max(0, delta);
+  const tuning = archetypeTuning(entity.id);
+  const currentSpeed = Math.hypot(entity.velocity.x, entity.velocity.z);
+  const target = targetSpeed(input, tuning);
+  const currentForward = { x:Math.sin(entity.heading), z:Math.cos(entity.heading) };
+  const signedForwardSpeed = entity.velocity.x * currentForward.x + entity.velocity.z * currentForward.z;
+  const direction = Math.abs(signedForwardSpeed) > .05 ? Math.sign(signedForwardSpeed) : target < 0 ? -1 : 1;
+  const heading = entity.heading + clamp(Number(input.steer ?? 0), -1, 1) * steeringRate(currentSpeed, tuning.agility) * direction * safeDelta;
+  const desiredVelocity = { x:Math.sin(heading) * target, z:Math.cos(heading) * target };
+  const tau = input.brake ? BRAKE_TAU : Math.abs(target) > currentSpeed ? ACCELERATION_TAU / tuning.acceleration : COAST_TAU;
+  const alpha = exponentialAlpha(safeDelta, tau);
+  let velocity = {
+    x:lerp(entity.velocity.x, desiredVelocity.x, alpha),
+    z:lerp(entity.velocity.z, desiredVelocity.z, alpha),
+  };
+  const magnitude = Math.hypot(velocity.x, velocity.z);
+  if (magnitude > MAX_GALLOP_SPEED) {
+    const scale = MAX_GALLOP_SPEED / magnitude;
+    velocity = { x:velocity.x * scale, z:velocity.z * scale };
+  }
+  return {
+    heading,
+    velocity,
+    position:{x:entity.position.x + velocity.x * safeDelta, z:entity.position.z + velocity.z * safeDelta},
+  };
+};
 const angleDelta = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 const initialState = () => ({ tick: 0, serverTime: Date.now(), ackSequence: 0, started: false, entities: ENTITY_IDS.map((id, index) => ({ id, position: { x: STARTS[index][0], z: STARTS[index][1] }, velocity: { x: 0, z: 0 }, heading: STARTS[index][2], gait: "IDLE" })), ball: { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: .65 } });
 const compress = (state, ackSequence = 0) => [state.tick, state.serverTime, state.entities.map(entity => [entity.id, entity.position.x, entity.position.z, entity.velocity.x, entity.velocity.z, entity.heading, entity.gait]), [state.ball.position.x, state.ball.position.z, state.ball.velocity.x, state.ball.velocity.z, state.ball.y], ackSequence];
@@ -83,13 +137,20 @@ function startRoom() {
 
 function updateHuman(room, entity, command, delta) {
   const input = command.input ?? {};
-  if (!room.state.started && (Math.abs(input.throttle ?? 0) > .01 || Math.abs(input.steer ?? 0) > .01 || input.strike || input.backhand || input.rideOff)) room.state.started = true;
-  const speed = Math.hypot(entity.velocity.x, entity.velocity.z);
-  const target = input.brake ? 0 : (input.throttle ?? 0) * (input.gallop ? 30 : 18);
-  const next = speed + Math.max(-22 * delta, Math.min(15 * delta, target - speed));
-  const turnAuthority = 1.8 * (1 - Math.min(speed / 32, .58));
-  entity.heading += (input.steer ?? 0) * turnAuthority * delta;
-  entity.velocity = { x: Math.sin(entity.heading) * next, z: Math.cos(entity.heading) * next };
+  const hasPlayerIntent = Math.abs(input.throttle ?? 0) > .01 || Math.abs(input.steer ?? 0) > .01 || input.strike || input.backhand || input.rideOff;
+  const frozenAtKickoff = !room.state.started && !hasPlayerIntent;
+  if (!room.state.started && hasPlayerIntent) room.state.started = true;
+  if (frozenAtKickoff) {
+    entity.velocity = {x:0,z:0};
+    entity.gait = "IDLE";
+  } else {
+    const motion = integrateHorseMotion(entity, input, delta);
+    entity.position = motion.position;
+    entity.velocity = motion.velocity;
+    entity.heading = motion.heading;
+    entity.gait = gait(Math.hypot(motion.velocity.x, motion.velocity.z));
+  }
+  const next = Math.hypot(entity.velocity.x, entity.velocity.z);
   const lastProcessed = room.processed.get(entity.id) ?? 0;
   if (command.sequence > lastProcessed) {
     room.processed.set(entity.id, command.sequence);
@@ -181,6 +242,9 @@ function resetSimulation(room) {
   room.state.ball = { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: .65 };
   room.state.started = false;
   room.state.entities.forEach((entity,index)=>{entity.position={x:STARTS[index][0],z:STARTS[index][1]};entity.velocity={x:0,z:0};entity.heading=STARTS[index][2];entity.gait="IDLE";});
+  room.inputs.clear();
+  room.strikes.clear();
+  room.botStrikeCooldowns.clear();
 }
 
 const wss = new WebSocketServer({ port: PORT });
@@ -252,14 +316,21 @@ setInterval(() => {
     for (const entity of room.state.entities) {
       const slot = room.slots.get(entity.id);
       const command = room.inputs.get(entity.id);
-      if (slot?.control === "HUMAN" && command) updateHuman(room, entity, command, delta);
+      let positionIntegrated = false;
+      if (slot?.control === "HUMAN" && command) {
+        updateHuman(room, entity, command, delta);
+        positionIntegrated = true;
+      }
       else if (slot?.control === "HUMAN") {
-        entity.velocity.x *= .85;
-        entity.velocity.z *= .85;
+        if (!room.state.started) entity.velocity = {x:0,z:0};
         entity.gait = gait(Math.hypot(entity.velocity.x, entity.velocity.z));
       } else updateBot(room, entity, chasers, delta);
-      entity.position.x = Math.max(-24, Math.min(24, entity.position.x + entity.velocity.x * delta));
-      entity.position.z = Math.max(-39, Math.min(39, entity.position.z + entity.velocity.z * delta));
+      if (!positionIntegrated) {
+        entity.position.x += entity.velocity.x * delta;
+        entity.position.z += entity.velocity.z * delta;
+      }
+      entity.position.x = Math.max(-24, Math.min(24, entity.position.x));
+      entity.position.z = Math.max(-39, Math.min(39, entity.position.z));
     }
     applyRideOffs(room, delta, now);
     room.state.ball.position.x += room.state.ball.velocity.x * delta;

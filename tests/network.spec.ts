@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { FixedTimestepLoop } from "../src/game/GameLoop";
-import { PredictionController, SnapshotBuffer, compressSnapshot, createInitialNetworkSnapshot, decompressSnapshot, type InputCommand, type NetworkSnapshot } from "../src/game/NetworkSync";
+import { PredictionController, SnapshotBuffer, compressSnapshot, createInitialNetworkSnapshot, decompressSnapshot, predictLocalEntity, type InputCommand, type NetworkSnapshot } from "../src/game/NetworkSync";
+import { ACCELERATION_TAU, MAX_GALLOP_SPEED } from "../src/game/HorseControls";
 import { NetworkManager, reconnectDelay, resolveWebSocketUrl, type WebSocketTransport } from "../src/services/NetworkManager";
 
 class MockSocket implements WebSocketTransport {
@@ -168,11 +169,20 @@ test("client prediction applies input immediately and reconciliation consumes ac
   expect(prediction.pendingCount()).toBe(0);
 });
 
+test("client prediction uses the canonical momentum curve and absolute velocity clamp", () => {
+  let entity=createInitialNetworkSnapshot(1_000).entities[0];
+  const straightCommand=(sequence:number):InputCommand=>{const value=command(sequence);return {...value,input:{...value.input,steer:0}}};
+  for(let tick=0;tick<60;tick+=1)entity=predictLocalEntity(entity,straightCommand(tick+1),1/60);
+  expect(Math.hypot(entity.velocity.x,entity.velocity.z)).toBeCloseTo(MAX_GALLOP_SPEED*(1-Math.exp(-1/ACCELERATION_TAU)),8);
+  for(let tick=60;tick<660;tick+=1)entity=predictLocalEntity(entity,straightCommand(tick+1),1/60);
+  expect(Math.hypot(entity.velocity.x,entity.velocity.z)).toBeLessThanOrEqual(MAX_GALLOP_SPEED);
+});
+
 test("live realtime server holds formation until intent and broadcasts advancing snapshots", async ({ page }) => {
   await page.goto("/");
-  const result = await page.evaluate(() => new Promise<{ entities: number; firstTick: number; secondTick: number; assigned: string; idleDrift:number }>((resolve, reject) => {
+  const result = await page.evaluate(() => new Promise<{ entities: number; firstTick: number; secondTick: number; assigned: string; idleDrift:number; motionSpeed:number }>((resolve, reject) => {
     const socket = new WebSocket("ws://127.0.0.1:8080");
-    let entities = 0, assigned = "", matchId="", firstTick = -1, idleDrift=0, initialPositions:number[][]=[];
+    let entities = 0, assigned = "", matchId="", firstTick = -1, idleDrift=0, initialPositions:number[][]=[],movementSnapshots=0,motionSpeed=0;
     const timeout = window.setTimeout(() => { socket.close(); reject(new Error("Realtime room timed out")); }, 7_000);
     socket.onopen = () => socket.send(JSON.stringify({ type: "JOIN_QUEUE", payload: { playerName: "NETWORK_TEST", mode: "6V6" } }));
     socket.onerror = () => { window.clearTimeout(timeout); reject(new Error("Realtime socket failed")); };
@@ -192,9 +202,14 @@ test("live realtime server holds formation until intent and broadcasts advancing
           socket.send(JSON.stringify({ type: "INPUT", payload: { matchId, entityId: assigned, command: { sequence: 1, clientTime: Date.now(), input: { throttle: 1, steer: 0, gallop: true, brake: false, strike: false, backhand: false, aimX: 0 } } } }));
         }
         else if (tick > firstTick) {
-          window.clearTimeout(timeout);
-          socket.close();
-          resolve({ entities, firstTick, secondTick: tick, assigned, idleDrift });
+          movementSnapshots+=1;
+          const rider=message.payload[2].find((entity:unknown[])=>entity[0]===assigned);
+          motionSpeed=rider?Math.hypot(Number(rider[3]),Number(rider[4])):0;
+          if(movementSnapshots>=30){
+            window.clearTimeout(timeout);
+            socket.close();
+            resolve({ entities, firstTick, secondTick: tick, assigned, idleDrift, motionSpeed });
+          }
         }
       }
     };
@@ -203,4 +218,7 @@ test("live realtime server holds formation until intent and broadcasts advancing
   expect(result.assigned).toBeTruthy();
   expect(result.idleDrift).toBeLessThan(.001);
   expect(result.secondTick).toBeGreaterThan(result.firstTick);
+  expect(result.motionSpeed).toBeGreaterThan(8);
+  expect(result.motionSpeed).toBeLessThan(14.5);
+  expect(result.motionSpeed).toBeLessThanOrEqual(MAX_GALLOP_SPEED);
 });
