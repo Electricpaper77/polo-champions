@@ -21,6 +21,14 @@ const ACCELERATION_TAU = 1.5;
 const COAST_TAU = 1.0;
 const BRAKE_TAU = 0.45;
 const GALLOP_GAIT_THRESHOLD = MAX_GALLOP_SPEED * .75;
+const BASE_BALL_IMPULSE = 14;
+const MIN_SWING_POWER = .5;
+const MAX_SWING_POWER = 2;
+const BALL_FIELD_DRAG = .9;
+const BALL_STOP_SPEED = .08;
+const BALL_FLOOR_Y = .65;
+const BALL_GRAVITY = 9.81;
+const MALLET_CONTACT_RADIUS = 1.05;
 const ENTITY_IDS = ["player", "blue_2", "blue_3", "blue_4", "blue_5", "blue_6", "red_1", "red_2", "red_3", "red_4", "red_5", "red_6"];
 const STARTS = [[0, 28, Math.PI], [-13, 22, Math.PI], [13, 22, Math.PI], [0, 15, Math.PI], [-14, 10, Math.PI], [14, 10, Math.PI], [0, -28, 0], [13, -22, 0], [-13, -22, 0], [0, -15, 0], [14, -10, 0], [-14, -10, 0]];
 const START_BY_ID = new Map(ENTITY_IDS.map((id, index) => [id, STARTS[index]]));
@@ -37,6 +45,49 @@ const steeringRate = (speed, agility = 1) => {
   return lerp(1.5, .55, penalty) * agility;
 };
 const gait = speed => speed < .2 ? "IDLE" : speed < 5 ? "WALK" : speed < 11 ? "TROT" : speed < GALLOP_GAIT_THRESHOLD ? "CANTER" : "GALLOP";
+const swingPowerMultiplier = charge => lerp(MIN_SWING_POWER, MAX_SWING_POWER, clamp(charge, 0, 1));
+const malletHeadPosition = (position, yaw, aimX, backhand, progress) => {
+  const aimedYaw = yaw + clamp(aimX, -1, 1) * .38;
+  const forward = { x:Math.sin(aimedYaw), z:Math.cos(aimedYaw) };
+  const right = { x:Math.cos(aimedYaw), z:-Math.sin(aimedYaw) };
+  const side = backhand ? -1 : 1;
+  const localForward = lerp(-.4, 3.7, progress);
+  const localSide = side * (2.05 - Math.sin(Math.PI * progress) * 1.15);
+  return { x:position.x + forward.x * localForward + right.x * localSide, z:position.z + forward.z * localForward + right.z * localSide };
+};
+const pointSegmentDistance = (point, start, end) => {
+  const dx = end.x - start.x, dz = end.z - start.z, lengthSquared = dx * dx + dz * dz;
+  const amount = lengthSquared > 0 ? clamp(((point.x - start.x) * dx + (point.z - start.z) * dz) / lengthSquared, 0, 1) : 0;
+  return Math.hypot(point.x - (start.x + dx * amount), point.z - (start.z + dz * amount));
+};
+const malletSweepHits = (entity, ball, aimX, backhand) => {
+  let previous = malletHeadPosition(entity.position, entity.heading, aimX, backhand, 0);
+  for (let step = 1; step <= 8; step += 1) {
+    const current = malletHeadPosition(entity.position, entity.heading, aimX, backhand, step / 8);
+    if (pointSegmentDistance(ball, previous, current) <= MALLET_CONTACT_RADIUS) return true;
+    previous = current;
+  }
+  return false;
+};
+const ballReleaseVelocity = (entity, aimX, aimY, backhand, charge) => {
+  const localX = clamp(aimX, -1, 1) * .7, magnitude = Math.hypot(localX, 1);
+  const direction = {
+    x:(localX * Math.cos(entity.heading) + Math.sin(entity.heading)) / magnitude,
+    z:(-localX * Math.sin(entity.heading) + Math.cos(entity.heading)) / magnitude,
+  };
+  if (backhand) { direction.x *= -1; direction.z *= -1; }
+  const normalizedCharge = clamp(charge, 0, 1), power = BASE_BALL_IMPULSE * swingPowerMultiplier(normalizedCharge);
+  return {
+    x:entity.velocity.x + direction.x * power,
+    y:.65 + normalizedCharge * 4.35 + clamp(aimY, -1, 1),
+    z:entity.velocity.z + direction.z * power,
+  };
+};
+const applyBallFieldDrag = (velocity, delta) => {
+  const attenuation = Math.exp(-BALL_FIELD_DRAG * Math.max(0, delta));
+  const next = { x:velocity.x * attenuation, z:velocity.z * attenuation };
+  return Math.hypot(next.x, next.z) < BALL_STOP_SPEED ? { x:0, z:0 } : next;
+};
 const mass = id => POWER_IDS.has(id) ? 1.3 : SPRINTER_IDS.has(id) ? .85 : 1;
 const archetypeTuning = id => POWER_IDS.has(id)
   ? { acceleration:.9, topSpeed:.9, agility:.85 }
@@ -79,7 +130,7 @@ const integrateHorseMotion = (entity, input, delta) => {
   };
 };
 const angleDelta = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
-const initialState = () => ({ tick: 0, serverTime: Date.now(), ackSequence: 0, started: false, entities: ENTITY_IDS.map((id, index) => ({ id, position: { x: STARTS[index][0], z: STARTS[index][1] }, velocity: { x: 0, z: 0 }, heading: STARTS[index][2], gait: "IDLE" })), ball: { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: .65 } });
+const initialState = () => ({ tick: 0, serverTime: Date.now(), ackSequence: 0, started: false, entities: ENTITY_IDS.map((id, index) => ({ id, position: { x: STARTS[index][0], z: STARTS[index][1] }, velocity: { x: 0, z: 0 }, heading: STARTS[index][2], gait: "IDLE" })), ball: { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: BALL_FLOOR_Y, verticalVelocity: 0 } });
 const compress = (state, ackSequence = 0) => [state.tick, state.serverTime, state.entities.map(entity => [entity.id, entity.position.x, entity.position.z, entity.velocity.x, entity.velocity.z, entity.heading, entity.gait]), [state.ball.position.x, state.ball.position.z, state.ball.velocity.x, state.ball.velocity.z, state.ball.y], ackSequence];
 const rooms = new Map();
 let queue = [];
@@ -156,18 +207,20 @@ function updateHuman(room, entity, command, delta) {
     room.processed.set(entity.id, command.sequence);
     room.acks.set(entity.id, command.sequence);
     const holding = Boolean(input.strike || input.backhand);
-    const strike = room.strikes.get(entity.id) ?? { holding: false, startedAt: command.clientTime, backhand: false, aimX: 0, power: false };
-    if (holding && !strike.holding) room.strikes.set(entity.id, { holding: true, startedAt: command.clientTime, backhand: Boolean(input.backhand), aimX: Number(input.aimX ?? 0), power: Boolean(input.power) });
-    else if (holding) room.strikes.set(entity.id, { ...strike, aimX: Number(input.aimX ?? strike.aimX), power: strike.power || Boolean(input.power) });
+    const strike = room.strikes.get(entity.id) ?? { holding: false, startedAt: command.clientTime, backhand: false, aimX: 0, aimY: 0, power: false };
+    if (holding && !strike.holding) room.strikes.set(entity.id, { holding: true, startedAt: command.clientTime, backhand: Boolean(input.backhand), aimX: Number(input.aimX ?? 0), aimY: Number(input.aimY ?? 0), power: Boolean(input.power) });
+    else if (holding) room.strikes.set(entity.id, { ...strike, aimX: Number(input.aimX ?? strike.aimX), aimY: Number(input.aimY ?? strike.aimY), power: strike.power || Boolean(input.power) });
     if (!holding && strike.holding) {
-      room.strikes.set(entity.id, { holding: false, startedAt: command.clientTime, backhand: false, aimX: 0, power: false });
+      room.strikes.set(entity.id, { holding: false, startedAt: command.clientTime, backhand: false, aimX: 0, aimY: 0, power: false });
       const rewind = evaluateRewoundStrike(room.history, entity.id, command.receivedAt, command.reportedPingMs);
-      if (rewind.valid) {
-        const charge = Math.max(.1, Math.min(1, (command.clientTime - strike.startedAt) / 900)) * (strike.power ? 1.5 : 1);
-        const releasedAimX = Number(input.aimX ?? strike.aimX);
-        const aim = entity.heading + releasedAimX * .38 + (strike.backhand ? Math.PI : 0);
-        const impulse = 12 + charge * 16 + Math.abs(next) * .18;
-        room.state.ball.velocity = { x: Math.sin(aim) * impulse, z: Math.cos(aim) * impulse };
+      const rewoundEntity = rewind.snapshot?.entities.find(value => value.id === entity.id);
+      const releasedAimX = Number(input.aimX ?? strike.aimX);
+      const releasedAimY = Number(input.aimY ?? strike.aimY);
+      if (rewind.valid && rewoundEntity && malletSweepHits(rewoundEntity, rewind.snapshot.ball.position, releasedAimX, strike.backhand)) {
+        const charge = clamp((command.clientTime - strike.startedAt) / 900, 0, 1) * (strike.power ? 1.5 : 1);
+        const release = ballReleaseVelocity(rewoundEntity, releasedAimX, releasedAimY, strike.backhand, charge);
+        room.state.ball.velocity = { x:release.x, z:release.z };
+        room.state.ball.verticalVelocity = release.y;
       }
     }
   }
@@ -201,7 +254,8 @@ function updateBot(room, entity, chasers, delta) {
   const toBall = { x: room.state.ball.position.x - entity.position.x, z: room.state.ball.position.z - entity.position.z }, distanceToBall = Math.hypot(toBall.x, toBall.z), facingBall = (toBall.x * Math.sin(entity.heading) + toBall.z * Math.cos(entity.heading)) / (distanceToBall || 1);
   if (chaser && distanceToBall < 3.4 && facingBall > .72 && cooldown <= 0) {
     const goalZ = team === "blue" ? -43 : 43, goalDx = -room.state.ball.position.x, goalDz = goalZ - room.state.ball.position.z, goalLength = Math.hypot(goalDx, goalDz) || 1, power = 11 + Math.min(speed * .45, 4);
-    room.state.ball.velocity = { x: goalDx / goalLength * power, z: goalDz / goalLength * power };
+    room.state.ball.velocity = { x: entity.velocity.x + goalDx / goalLength * power, z: entity.velocity.z + goalDz / goalLength * power };
+    room.state.ball.verticalVelocity = 1.2;
     room.botStrikeCooldowns.set(entity.id, 1.25);
   }
 }
@@ -239,7 +293,7 @@ function applyRideOffs(room, delta, now) {
 }
 
 function resetSimulation(room) {
-  room.state.ball = { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: .65 };
+  room.state.ball = { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: BALL_FLOOR_Y, verticalVelocity: 0 };
   room.state.started = false;
   room.state.entities.forEach((entity,index)=>{entity.position={x:STARTS[index][0],z:STARTS[index][1]};entity.velocity={x:0,z:0};entity.heading=STARTS[index][2];entity.gait="IDLE";});
   room.inputs.clear();
@@ -335,8 +389,13 @@ setInterval(() => {
     applyRideOffs(room, delta, now);
     room.state.ball.position.x += room.state.ball.velocity.x * delta;
     room.state.ball.position.z += room.state.ball.velocity.z * delta;
-    room.state.ball.velocity.x *= .985;
-    room.state.ball.velocity.z *= .985;
+    room.state.ball.velocity = applyBallFieldDrag(room.state.ball.velocity, delta);
+    room.state.ball.y += room.state.ball.verticalVelocity * delta;
+    room.state.ball.verticalVelocity -= BALL_GRAVITY * delta;
+    if (room.state.ball.y <= BALL_FLOOR_Y) {
+      room.state.ball.y = BALL_FLOOR_Y;
+      room.state.ball.verticalVelocity = 0;
+    }
     if (Math.abs(room.state.ball.position.z) > 42 || Math.abs(room.state.ball.position.x) > 26) {
       resetSimulation(room);
     }

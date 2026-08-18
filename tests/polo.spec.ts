@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { ACCELERATION_TAU, advanceHorseSpeed, advanceStamina, BRAKE_SPEED, BRAKE_TAU, COAST_TAU, exponentialAlpha, GALLOP_GAIT_THRESHOLD, GALLOP_SPEED, getArchetypeCoat, getBodyLean, getCameraOffset, getGait, getHorseArchetype, getRiderPose, getSteeringRate, getTargetSpeed, HORSE_COATS, integrateHorseMotion, MAX_GALLOP_SPEED, NORMAL_RIDE_SPEED, steeringRate } from "../src/game/HorseControls";
-import { canApplyStrike, getBallResetState, getMalletAngle, getShotImpulse, getStrikePhase, INITIAL_GOAL_STATE, isStrikeContact, transitionGoal } from "../src/game/PoloMechanics";
+import { applyBallFieldDrag, BASE_BALL_IMPULSE, canApplyStrike, getBallResetState, getMalletAngle, getMalletHeadPosition, getShotImpulse, getStrikePhase, getSwingPowerMultiplier, INITIAL_GOAL_STATE, isBallInMalletSweep, isStrikeContact, transitionGoal } from "../src/game/PoloMechanics";
 import { applyRideOffDisplacement, create2v2, decideBot, goalResult, isLineOfBallFoul, legalRideOff, rideOffImpulse } from "../src/game/MatchRules";
 import { FoulToast } from "../src/game/Game";
 import { initializeMatchEntities } from "../src/game/GameState";
@@ -130,6 +130,34 @@ test("charged shots scale power and aiming changes the impulse direction", () =>
   expect(aimedLeft.z).toBeCloseTo(aimedRight.z);
 });
 
+test("swing power is linear from a half-strength tap to a 2x full shot", () => {
+  expect(getSwingPowerMultiplier(0)).toBe(.5);
+  expect(getSwingPowerMultiplier(.5)).toBe(1.25);
+  expect(getSwingPowerMultiplier(1)).toBe(2);
+  expect(getSwingPowerMultiplier(2)).toBe(2);
+});
+
+test("ball release velocity adds horse momentum and charge-based loft", () => {
+  const tap = getShotImpulse({ aimX:0, yaw:0, backhand:false, charge:0, speed:0, horseVelocity:{x:3,y:0,z:4} });
+  const full = getShotImpulse({ aimX:0, yaw:0, backhand:false, charge:1, speed:0, horseVelocity:{x:3,y:0,z:4} });
+  expect(tap).toMatchObject({ x:3, z:4 + BASE_BALL_IMPULSE * .5, powerMultiplier:.5 });
+  expect(full).toMatchObject({ x:3, z:4 + BASE_BALL_IMPULSE * 2, powerMultiplier:2 });
+  expect(full.y).toBeGreaterThan(tap.y);
+});
+
+test("mallet contact uses the swept arc rather than broad rider proximity", () => {
+  const riderPosition={x:0,z:0},ballPosition=getMalletHeadPosition({riderPosition,yaw:0,aimX:0,backhand:false,contactProgress:.5});
+  expect(isBallInMalletSweep({riderPosition,ballPosition,yaw:0,aimX:0,backhand:false,previousElapsed:.1,currentElapsed:.17})).toBe(true);
+  expect(isBallInMalletSweep({riderPosition,ballPosition:{x:-4,z:0},yaw:0,aimX:0,backhand:false,previousElapsed:.1,currentElapsed:.17})).toBe(false);
+});
+
+test("field drag slows the ball smoothly and settles low-speed rolls", () => {
+  const slowed=applyBallFieldDrag({x:10,z:0},1);
+  expect(slowed.x).toBeGreaterThan(0);
+  expect(slowed.x).toBeLessThan(10);
+  expect(applyBallFieldDrag({x:.08,z:0},1)).toEqual({x:0,z:0});
+});
+
 test("a goal scores once until the ball leaves and resets deterministically", () => {
   const goal = { x: 0, z: 43 };
   const first = transitionGoal(INITIAL_GOAL_STATE, goal);
@@ -164,7 +192,11 @@ test("broadcast HUD renders teams, telemetry, and field radar", async ({ page })
   await expect(page.getByText("RED", { exact: true })).toBeVisible();
   await expect(page.getByText("CHUKKER 1", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Field radar")).toBeVisible();
-  await expect(page.getByLabel("Speed and stamina")).toBeVisible();
+  const telemetry=page.getByLabel("Speed and stamina");
+  await expect(telemetry).toBeVisible();
+  await expect(telemetry).toHaveAttribute("data-speed-kmh", "0.0");
+  await expect(telemetry).toHaveAttribute("data-stamina", "1.000");
+  await expect(telemetry).toHaveAttribute("data-gait", "IDLE");
 });
 
 test("AI role assignment and pursuit choose tactical states", () => { const bots=create2v2(); expect(bots).toHaveLength(4); expect(bots.filter(b=>b.role==="ATTACKER")).toHaveLength(2); expect(decideBot(bots[0],{x:0,z:0})).toBe("APPROACH_BALL"); expect(decideBot({...bots[0],position:{x:0,z:1},facing:{x:0,z:-1}},{x:0,z:0})).toBe("CHARGE_SWING"); });
