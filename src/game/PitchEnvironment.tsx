@@ -41,8 +41,8 @@ export function PitchEnvironment({ width = 52, length = 82 }: { width?: number; 
   useFrame(state => { if (shader.current) shader.current.uniforms.uTime.value = state.clock.elapsedTime; });
   const stripeLines = Array.from({ length: 5 }, (_, i) => -40 + i * 20);
   return <group name="pbr-pitch-environment">
-    <ambientLight intensity={1.15} />
-    <directionalLight position={[24, 34, 16]} intensity={2.6} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-camera-left={-45} shadow-camera-right={45} shadow-camera-top={55} shadow-camera-bottom={-55} />
+    <ambientLight intensity={0.85} />
+    <directionalLight position={[24, 34, 16]} intensity={2.2} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-camera-left={-45} shadow-camera-right={45} shadow-camera-top={55} shadow-camera-bottom={-55} />
     <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[width, length, 128, 192]} /><meshStandardMaterial map={textures.map} normalMap={textures.normalMap} normalScale={new THREE.Vector2(0.45, 0.45)} displacementMap={textures.displacementMap} displacementScale={0.035} roughness={0.92} /></mesh>
     <instancedMesh ref={grass} args={[undefined, undefined, 3200]} castShadow receiveShadow frustumCulled={false}><planeGeometry args={[0.08, 0.34, 1, 2]} /><primitive object={material} attach="material" /></instancedMesh>
     {stripeLines.map(z => <mesh key={z} position={[0, 0.025, z]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[width, 0.32]} /><meshBasicMaterial color="#f7f2df" /></mesh>)}
@@ -50,3 +50,4 @@ export function PitchEnvironment({ width = 52, length = 82 }: { width?: number; 
     {[-1, 1].map(side => <group key={side} position={[0, 0, side * length / 2]}>{[-5, 5].map(x => <mesh key={x} position={[x, 2, 0]} castShadow><cylinderGeometry args={[0.14, 0.18, 4, 12]} /><meshStandardMaterial color="#f7f2df" roughness={0.62} /></mesh>)}</group>)}
   </group>;
 }
+
