@@ -147,3 +147,4 @@ export function transitionGoal(state: GoalState, position: { x: number; z: numbe
 export function getBallResetState() {
   return { position: { ...BALL_START }, velocity: { x: 0, y: 0, z: 0 } };
 }
+
