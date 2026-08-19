@@ -6,8 +6,8 @@ export const STRIKE_RECOVERY_END = .48;
 export const BASE_BALL_IMPULSE = 14;
 export const MIN_SWING_POWER = .5;
 export const MAX_SWING_POWER = 2;
-export const BALL_FIELD_DRAG = .9;
-export const BALL_SURFACE_FRICTION = .72;
+export const BALL_FIELD_DRAG = 0.35;
+export const BALL_SURFACE_FRICTION = 0.15;
 export const BALL_STOP_SPEED = .08;
 export const MALLET_CONTACT_RADIUS = 1.05;
 
@@ -147,6 +147,7 @@ export function transitionGoal(state: GoalState, position: { x: number; z: numbe
 export function getBallResetState() {
   return { position: { ...BALL_START }, velocity: { x: 0, y: 0, z: 0 } };
 }
+
 
 
 
