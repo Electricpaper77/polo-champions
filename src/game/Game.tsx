@@ -30,7 +30,11 @@ function Ball({api}:{api:React.MutableRefObject<RapierRigidBody|null>}){const ke
 const NETWORK_ENTITY_IDS: PoloRiderEntity["id"][] = ["player", "blue_2", "blue_3", "blue_4", "red_1", "red_2", "red_3", "red_4"];
 
 function cloneEntities(entities: ReturnType<typeof initializeMatchEntities>) {
-  return Object.fromEntries(Object.entries(entities).map(([id, entity]) => [id, { ...entity, position: { ...entity.position }, velocity: { ...entity.velocity } }])) as ReturnType<typeof initializeMatchEntities>;
+  return Object.fromEntries(
+    Object.entries(entities)
+      .filter(([id]) => NETWORK_ENTITY_IDS.includes(id as any))
+      .map(([id, entity]) => [id, { ...entity, position: { ...entity.position }, velocity: { ...entity.velocity } }])
+  ) as ReturnType<typeof initializeMatchEntities>;
 }
 
 function RealtimeHorse({ ball, input }: { ball: React.RefObject<RapierRigidBody | null>; input:React.RefObject<Input> }) {
