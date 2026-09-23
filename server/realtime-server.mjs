@@ -1,3 +1,4 @@
+import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import {
@@ -349,7 +350,16 @@ function resetSimulation(room, resetScore = false) {
   room.botStrikeCooldowns.clear();
 }
 
-const wss = new WebSocketServer({ port: PORT });
+const server = http.createServer((req, res) => {
+res.writeHead(200, { 'Content-Type': 'text/plain' });
+res.end('Polo Champions Server OK');
+});
+
+const wss = new WebSocketServer({ server });
+
+server.listen(PORT, '0.0.0.0', () => {
+console.log(Realtime server running on port ${PORT});
+});
 wss.on("connection", socket => {
   socket.isAlive = true;
   socket.on("pong", () => { socket.isAlive = true; });
