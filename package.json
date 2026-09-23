@@ -2,12 +2,16 @@
   "name": "polo-champions",
   "version": "0.1.0",
   "private": true,
+  "main": "electron-main.cjs",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "playwright test"
+    "test": "playwright test",
+    "desktop:dev": "set ELECTRON_START_URL=http://127.0.0.1:5173&& electron electron-main.cjs",
+    "desktop:package": "npm.cmd run build && electron-forge package",
+    "desktop:make": "npm.cmd run build && electron-forge make"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
@@ -20,10 +24,14 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
+    "@electron/packager": "^20.2.0",
     "@playwright/test": "^1.56.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "electron": "^43.3.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.7"
   },

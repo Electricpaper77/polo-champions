@@ -6,6 +6,19 @@ export const RIDE_OFF_MAX_RELATIVE_SPEED=9;
 export const RIDE_OFF_COOLDOWN_MS=900;
 export const RIDE_OFF_BASE_STRENGTH=1.15;
 export const RIDE_OFF_SPEED_STRENGTH=.06;
+export type RideOffContactInput={challengerStrength:number;defenderBalance:number;challengerSpeed:number;defenderSpeed:number;alignment:number;sideBySide:number};
+export type RideOffContactResult={contactScore:number;targetDisplacement:number;attackerResponse:number;defenderResponse:number;recoveryDuration:number};
+export function resolveRideOffContact(input:RideOffContactInput):RideOffContactResult{
+  const strength=.65+Math.max(0,Math.min(100,Number.isFinite(input.challengerStrength)?input.challengerStrength:0))/100;
+  const resistance=.7+Math.max(0,Math.min(100,Number.isFinite(input.defenderBalance)?input.defenderBalance:0))/160;
+  const speed=.75+Math.max(0,Math.min(8,Number.isFinite(input.challengerSpeed)?input.challengerSpeed:0))/32;
+  const alignment=.75+Math.max(0,Math.min(1,(input.alignment-RIDE_OFF_ALIGNMENT_THRESHOLD)/(1-RIDE_OFF_ALIGNMENT_THRESHOLD)))*.25;
+  const sideBySide=.72+Math.max(0,Math.min(1,Number.isFinite(input.sideBySide)?input.sideBySide:0))*.28;
+  const defenderSpeed=Math.max(0,Math.min(8,Number.isFinite(input.defenderSpeed)?input.defenderSpeed:0));
+  const contactScore=Math.max(.55,Math.min(1.65,strength*speed*alignment*sideBySide/resistance*(1-Math.min(.1,defenderSpeed*.012))));
+  const targetDisplacement=Math.max(.45,Math.min(1.55,.3+contactScore*.62));
+  return {contactScore,targetDisplacement,attackerResponse:Math.min(.34,targetDisplacement*.2),defenderResponse:Math.min(.28,targetDisplacement*.16),recoveryDuration:Math.max(.15,Math.min(.36,.14+contactScore*.12))};
+}
 const dot=(a:{x:number;z:number},b:{x:number;z:number})=>a.x*b.x+a.z*b.z;
 const normalize=(v:{x:number;z:number})=>{const n=Math.hypot(v.x,v.z);return n?{x:v.x/n,z:v.z/n}:{x:0,z:0}};
 export function findRideOffTarget(challenger:RideOffRider,riders:RideOffRider[],now:number,cooldowns:Record<string,number>){

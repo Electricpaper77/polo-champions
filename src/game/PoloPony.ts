@@ -1,0 +1,4 @@
+export type PoloPonyStats={speed:number;acceleration:number;agility:number;strength:number;balance:number;stamina:number};
+export const PONIES={SPRINTER:{speed:92,acceleration:94,agility:82,strength:64,balance:70,stamina:76},ALL_ROUNDER:{speed:82,acceleration:82,agility:84,strength:80,balance:84,stamina:84},POWER:{speed:74,acceleration:70,agility:68,strength:94,balance:92,stamina:88}} as const satisfies Record<string,PoloPonyStats>;
+export const RIDER_PONIES={blue1:PONIES.SPRINTER,blue2:PONIES.ALL_ROUNDER,red1:PONIES.POWER,red2:PONIES.ALL_ROUNDER};
+export const maxSpeed=(stats:PoloPonyStats,stamina=100)=>16*(.88+stats.speed/600)*(stamina<25?.82:1); export const accel=(stats:PoloPonyStats,stamina=100)=>.65+stats.acceleration/100*(stamina<50?.72:.95); export const staminaStep=(current:number,gallop:boolean,dt:number)=>Math.max(0,Math.min(100,current+(gallop?-4:2.2)*dt));
