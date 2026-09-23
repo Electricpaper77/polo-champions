@@ -1,4 +1,4 @@
-import http from "node:http";
+import http from 'node:http';
 import { randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import {
@@ -358,7 +358,7 @@ res.end('Polo Champions Server OK');
 const wss = new WebSocketServer({ server });
 
 server.listen(PORT, '0.0.0.0', () => {
-console.log(Realtime server running on port ${PORT});
+console.log('Realtime server running on port ' + PORT);
 });
 wss.on("connection", socket => {
   socket.isAlive = true;
