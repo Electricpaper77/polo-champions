@@ -34,3 +34,5 @@
 - B11 particles/chukker lifecycle/post-match update (2026-09-24): production `npm.cmd run build` passed with TypeScript and Vite (625 modules; existing 3D bundle-size warning). Added fixed-pool divot, ball wake, and goal spark particles; four 7-minute chukkers with whistle transition and halftime pony-change reset; and an executive final scorecard.
 
 2026-09-23 B7: npm.cmd run build PASS; npm.cmd test PASS.
+
+- B12 production readiness update (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (626 modules; existing 3D bundle-size warning); focused `npx.cmd playwright test e2e/match-flow.spec.ts --workers=1` passed. Added the `/api/health` JSON endpoint, an E2E match-flow suite, adaptive render pixel density for particle pressure, and presentation-state low-pass crowd audio.

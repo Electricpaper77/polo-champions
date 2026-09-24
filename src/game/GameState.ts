@@ -26,3 +26,11 @@ export const useMatch = create<MatchState>((set) => ({
   restart:()=>set(s=>({score:{blue:0,red:0},seconds:420,chukker:1,chukkerTransition:false,matchComplete:false,lobFouls:0,started:false,paused:false,message:"KICK OFF · MOVE TO START",celebratingGoal:null,activeFoul:null,entities:initializeMatchEntities(),telemetry,resetKey:s.resetKey+1})),
   setStarted:(started)=>set({started}), setSeconds:(seconds)=>set(s=>seconds>0?{seconds}:{seconds:0,paused:true,started:false,chukkerTransition:s.chukker<4,matchComplete:s.chukker===4,message:s.chukker===4?"FULL TIME":"END OF CHUKKER"}),setMessage:(message)=>set({message}),setActiveFoul:(activeFoul)=>set({activeFoul,lobFouls:activeFoul?.type==="LOB_CROSSING"?1:0}),setEntities:(entities)=>set({entities}),setTelemetry:(telemetry)=>set({telemetry})
 }));
+
+// Browser-only test seam. It is deliberately gated by the e2e query parameter
+// and cannot be reached by normal production sessions.
+if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("e2e") === "1") {
+  window.addEventListener("polo-e2e-complete", () => {
+    useMatch.setState({ seconds: 0, chukker: 4, paused: true, started: false, matchComplete: true, message: "FULL TIME" });
+  });
+}

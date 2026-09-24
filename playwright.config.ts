@@ -1,7 +1,8 @@
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
-  testDir:"tests",
+  testDir:".",
+  testMatch:["tests/**/*.spec.ts", "e2e/**/*.spec.ts"],
   // Each live match owns a heavyweight WebGL context; serialize to avoid GPU contention.
   workers:1,
   use:{ baseURL:"http://127.0.0.1:4173", headless:true },

@@ -4,6 +4,7 @@ class AudioEngineService {
   private master: GainNode | null = null;
   private gallopTimer: number | null = null;
   private ambient: AudioBufferSourceNode | null = null;
+  private crowdFilter: BiquadFilterNode | null = null;
   private muted = false;
 
   get isMuted() { return this.muted; }
@@ -22,11 +23,16 @@ class AudioEngineService {
   playMalletStrike(speed: number) { const context = this.ensure(); if (!context || this.muted) return; const oscillator = context.createOscillator(), gain = context.createGain(); oscillator.type = "square"; oscillator.frequency.setValueAtTime(170 + Math.min(speed, 25) * 19, context.currentTime); gain.gain.setValueAtTime(.16, context.currentTime); gain.gain.exponentialRampToValueAtTime(.001, context.currentTime + .09); oscillator.connect(gain).connect(this.master!); oscillator.start(); oscillator.stop(context.currentTime + .1); }
   playGoalHorn() { this.tone(392, .35, .2, "sawtooth"); this.tone(523, .35, .14, "sawtooth", .12); }
   playWhistle() { this.tone(1760, .16, .09, "sine"); }
+  /** Muffles stadium ambience while a pause or full-time overlay owns attention. */
+  setPresentationLowPass(active: boolean) {
+    if (!this.context || !this.crowdFilter) return;
+    this.crowdFilter.frequency.setTargetAtTime(active ? 280 : 1_100, this.context.currentTime, .08);
+  }
   startAmbientCrowd() {
     const context = this.ensure(); if (!context || this.ambient || this.muted) return;
     const buffer = context.createBuffer(1, context.sampleRate * 2, context.sampleRate), data = buffer.getChannelData(0);
     for (let i = 0; i < data.length; i += 1) data[i] = (Math.random() * 2 - 1) * .12;
-    const source = context.createBufferSource(), filter = context.createBiquadFilter(), gain = context.createGain(); source.buffer = buffer; source.loop = true; filter.type = "bandpass"; filter.frequency.value = 520; gain.gain.value = .055; source.connect(filter).connect(gain).connect(this.master!); source.start(); this.ambient = source;
+    const source = context.createBufferSource(), filter = context.createBiquadFilter(), gain = context.createGain(); source.buffer = buffer; source.loop = true; filter.type = "lowpass"; filter.frequency.value = 1_100; gain.gain.value = .055; source.connect(filter).connect(gain).connect(this.master!); source.start(); this.ambient = source; this.crowdFilter = filter;
   }
   private ensure() {
     if (typeof window === "undefined" || typeof AudioContext === "undefined") return null;

@@ -352,6 +352,11 @@ function resetSimulation(room, resetScore = false) {
 }
 
 const server = http.createServer((req, res) => {
+  if (req.method === "GET" && req.url === "/api/health") {
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    res.end(JSON.stringify({ status: "ok", version: "1.0.0", matchEngine: "active" }));
+    return;
+  }
   if (req.method === "GET" && req.url === "/") {
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("Polo Champions Server OK");
