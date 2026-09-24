@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ACCELERATION_TAU, advanceHorseSpeed, advanceStamina, BRAKE_SPEED, BRAKE_TAU, COAST_TAU, exponentialAlpha, GALLOP_GAIT_THRESHOLD, GALLOP_SPEED, getArchetypeCoat, getBodyLean, getCameraOffset, getGait, getHorseArchetype, getRiderPose, getSteeringRate, getTargetSpeed, HORSE_COATS, integrateHorseMotion, MAX_GALLOP_SPEED, NORMAL_RIDE_SPEED, steeringRate } from "../src/game/HorseControls";
+import { ACCELERATION_TAU, advanceHorseSpeed, advanceStamina, BRAKE_SPEED, BRAKE_TAU, COAST_TAU, exponentialAlpha, GALLOP_GAIT_THRESHOLD, GALLOP_SPEED, getArchetypeCoat, getBodyLean, getCameraOffset, getGait, getHorseArchetype, getRiderPose, getSteeringRate, getTargetSpeed, HORSE_ARCHETYPES, HORSE_COATS, integrateHorseMotion, MAX_GALLOP_SPEED, NORMAL_RIDE_SPEED, steeringRate, TEAM_PRESENTATION } from "../src/game/HorseControls";
 import { applyBallFieldDrag, BASE_BALL_IMPULSE, canApplyStrike, getBallResetState, getMalletAngle, getMalletHeadPosition, getShotImpulse, getStrikePhase, getSwingPowerMultiplier, INITIAL_GOAL_STATE, isBallInMalletSweep, isStrikeContact, transitionGoal } from "../src/game/PoloMechanics";
 import { applyRideOffDisplacement, create2v2, decideBot, goalResult, isLineOfBallFoul, legalRideOff, rideOffImpulse } from "../src/game/MatchRules";
 import { FoulToast } from "../src/game/Game";
@@ -115,6 +115,16 @@ test("archetype coats remain presentation-only readable variants", () => {
   expect(getArchetypeCoat("ALL_ROUNDER")).toBe("BAY");
   expect(getArchetypeCoat("POWER")).toBe("DARK_BAY");
   expect(Object.keys(HORSE_COATS)).toEqual(["BAY", "DARK_BAY", "CHESTNUT", "LIGHT_GRAY"]);
+  expect(HORSE_COATS.BAY).toEqual({ body: "#6c4327", mane: "#21150f" });
+});
+
+test("B7 All-Rounder baseline and team presentation remain deterministic", () => {
+  expect(HORSE_ARCHETYPES.ALL_ROUNDER).toMatchObject({ acceleration: 1, topSpeed: 1, agility: 1, mass: 1, pushResistance: 1 });
+  expect(HORSE_ARCHETYPES.SPRINTER.topSpeed).toBeGreaterThan(HORSE_ARCHETYPES.ALL_ROUNDER.topSpeed);
+  expect(HORSE_ARCHETYPES.POWER.pushResistance).toBeGreaterThan(HORSE_ARCHETYPES.ALL_ROUNDER.pushResistance);
+  expect(TEAM_PRESENTATION.blue.jersey).not.toBe(TEAM_PRESENTATION.red.jersey);
+  expect(TEAM_PRESENTATION.blue.poloWrap).not.toBe(TEAM_PRESENTATION.red.poloWrap);
+  expect(TEAM_PRESENTATION.blue.trousers).toBe(TEAM_PRESENTATION.red.trousers);
 });
 
 test("charged shots scale power and aiming changes the impulse direction", () => {

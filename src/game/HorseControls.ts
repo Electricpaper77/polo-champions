@@ -12,14 +12,26 @@ export const STAMINA_RECOVERY = 0.12;
 export type Gait = "IDLE" | "WALK" | "TROT" | "CANTER" | "GALLOP";
 export type RiderPose = { torsoPitch: number; hipPitch: number; seatHeight: number; strideCadence: number };
 export type HorseArchetype = "SPRINTER" | "ALL_ROUNDER" | "POWER";
-export type HorseArchetypeConfig = { acceleration: number; topSpeed: number; agility: number; mass: number; staminaDrain: number };
+/** Shared handling configuration.  Visual coat/kit choices never modify these values. */
+export type HorseArchetypeConfig = { acceleration: number; topSpeed: number; agility: number; mass: number; pushResistance: number; staminaDrain: number };
 export type HorseCoat = "BAY" | "DARK_BAY" | "CHESTNUT" | "LIGHT_GRAY";
-export const HORSE_COATS: Record<HorseCoat, string> = { BAY: "#6c4327", DARK_BAY: "#2d201b", CHESTNUT: "#9a4926", LIGHT_GRAY: "#b9b5aa" };
+/** Material-ready British polo coat values. Presentation only. */
+export const HORSE_COATS: Record<HorseCoat, { body: string; mane: string }> = {
+  BAY: { body: "#6c4327", mane: "#21150f" },
+  DARK_BAY: { body: "#2d201b", mane: "#100b09" },
+  CHESTNUT: { body: "#9a4926", mane: "#4b2113" },
+  LIGHT_GRAY: { body: "#b9b5aa", mane: "#4b4944" },
+};
+export type TeamPresentation = { jersey: string; helmet: string; saddlePad: string; poloWrap: string; crest: string; trousers: string };
+export const TEAM_PRESENTATION: Record<"blue" | "red", TeamPresentation> = {
+  blue: { jersey: "#0f2d5e", helmet: "#10254a", saddlePad: "#163d7a", poloWrap: "#2c67c9", crest: "#d8aa4a", trousers: "#eee7d5" },
+  red: { jersey: "#a92727", helmet: "#7f1c20", saddlePad: "#8f2529", poloWrap: "#bd3c39", crest: "#f5e9cf", trousers: "#eee7d5" },
+};
 export function getArchetypeCoat(archetype: HorseArchetype): HorseCoat { return archetype === "SPRINTER" ? "CHESTNUT" : archetype === "POWER" ? "DARK_BAY" : "BAY"; }
 export const HORSE_ARCHETYPES: Record<HorseArchetype, HorseArchetypeConfig> = {
-  SPRINTER: { acceleration: 1.2, topSpeed: 1.2, agility: 1.15, mass: .85, staminaDrain: 1.1 },
-  ALL_ROUNDER: { acceleration: 1, topSpeed: 1, agility: 1, mass: 1, staminaDrain: 1 },
-  POWER: { acceleration: .9, topSpeed: .9, agility: .85, mass: 1.3, staminaDrain: .85 },
+  SPRINTER: { acceleration: 1.2, topSpeed: 1.2, agility: 1.15, mass: .85, pushResistance: .84, staminaDrain: 1.1 },
+  ALL_ROUNDER: { acceleration: 1, topSpeed: 1, agility: 1, mass: 1, pushResistance: 1, staminaDrain: 1 },
+  POWER: { acceleration: .9, topSpeed: .9, agility: .85, mass: 1.3, pushResistance: 1.18, staminaDrain: .85 },
 };
 export function getHorseArchetype(archetype: HorseArchetype = "ALL_ROUNDER") { return HORSE_ARCHETYPES[archetype]; }
 
