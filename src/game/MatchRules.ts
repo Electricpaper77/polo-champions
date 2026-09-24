@@ -1,13 +1,14 @@
 import { getHorseArchetype, integrateHorseMotion, type HorseArchetype } from "./HorseControls";
 import type { MatchTeam, PoloRiderEntity } from "./GameState";
 import { getShotImpulse } from "./PoloMechanics";
+import { assignTacticalRoles, tacticalTarget, type TacticalRole } from "./AILogic";
 
 export type Team = "BLUE" | "RED";
 export type Role = "ATTACKER" | "PIVOT";
 export type Vec = { x: number; z: number };
 export type Bot = { id:string; team:Team; role:Role; archetype:HorseArchetype; position:Vec; facing:Vec };
 export type BotState = "APPROACH_BALL" | "CHARGE_SWING" | "RIDE_OFF_INTERCEPT" | "ZONE_DEFEND";
-export type AITacticalRole = "BALL_ATTACKER" | "OFFENSE_SUPPORT" | "DEFENDER";
+export type AITacticalRole = "BALL_ATTACKER" | "OFFENSE_SUPPORT" | "DEFENDER" | "BACK_SWEEPER";
 export type AIRoleAssignments = Partial<Record<PoloRiderEntity["id"], AITacticalRole>>;
 
 export const MIN_RIDER_SEPARATION = 2.6;
@@ -34,7 +35,7 @@ export function decideBot(bot:Bot,ball:Vec,opponent?:Bot):BotState{const toBall=
 export function legalRideOff(a:Bot,b:Bot){return Math.acos(clamp(dot(norm(a.facing),norm(b.facing)),-1,1))<=Math.PI/4}
 export function rideOffImpulse(a:Bot,b:Bot){return legalRideOff(a,b)?Math.max(0,getHorseArchetype(a.archetype).mass-getHorseArchetype(b.archetype).mass+.25):0}
 export function applyRideOffDisplacement(a:Bot,b:Bot,dt=1){const dx=a.position.x-b.position.x,dz=a.position.z-b.position.z,distance=Math.hypot(dx,dz)||1,normal={x:dx/distance,z:dz/distance},aPush=rideOffImpulse(a,b),bPush=rideOffImpulse(b,a);return {a:{x:a.position.x+normal.x*bPush*dt,z:a.position.z+normal.z*bPush*dt},b:{x:b.position.x-normal.x*aPush*dt,z:b.position.z-normal.z*aPush*dt}}}
-export function isLineOfBallFoul(ball:Vec,line:Vec,rider:Vec,pursuer:Team,riderTeam:Team){return riderTeam!==pursuer&&dot(sub(rider,ball),norm(line))>0&&Math.abs(line.x*(rider.z-ball.z)-line.z*(rider.x-ball.x))<2}
+export function isLineOfBallFoul(ball:Vec,line:Vec,rider:Vec,pursuer:Team,riderTeam:Team){const speed=length(line);return riderTeam!==pursuer&&speed>5&&dot(sub(rider,ball),norm(line))>0&&Math.abs(line.x*(rider.z-ball.z)-line.z*(rider.x-ball.x))/speed<2}
 export function goalResult(position:Vec){return Math.abs(position.z)>GOAL_LINE_Z&&Math.abs(position.x)<GOAL_HALF_WIDTH?{scored:true,reset:{x:0,z:0}}:{scored:false,reset:null}}
 
 export function detectGoalCrossing(previous:Vec, current:Vec):MatchTeam|null {
@@ -61,16 +62,8 @@ export function selectBallChasers(riders:PoloRiderEntity[], ball:Vec): Partial<R
 }
 
 export function assignAITacticalRoles(riders:PoloRiderEntity[], ball:Vec):AIRoleAssignments {
-  const assignments:AIRoleAssignments={};
-  for(const team of ["blue","red"] as const){
-    const teamRiders=riders.filter(rider=>rider.team===team&&rider.id!=="player");
-    const attackers=teamRiders.filter(rider=>rider.role==="striker").sort((a,b)=>length(sub({x:a.position.x,z:a.position.y},ball))-length(sub({x:b.position.x,z:b.position.y},ball))||a.id.localeCompare(b.id));
-    if(attackers[0])assignments[attackers[0].id]="BALL_ATTACKER";
-    for(const rider of teamRiders){
-      if(assignments[rider.id])continue;
-      assignments[rider.id]=rider.role==="defender"?"DEFENDER":"OFFENSE_SUPPORT";
-    }
-  }
+  const assignments:AIRoleAssignments={}, roles=assignTacticalRoles(riders,ball);
+  for(const [id,role] of Object.entries(roles)) assignments[id as PoloRiderEntity["id"]]=role==="ATTACKER"?"BALL_ATTACKER":role==="MIDFIELDER"?"OFFENSE_SUPPORT":role==="SWEEPER"?"BACK_SWEEPER":"DEFENDER";
   return assignments;
 }
 
@@ -83,6 +76,7 @@ export function getBotTacticalTarget(rider:PoloRiderEntity, ball:Vec, chasers:Pa
     const lane=rider.homePosition.x<0?-5:5;
     return{x:clamp(ball.x+lane,-20,20),z:clamp(ball.z-attackDirection*7,-35,35)};
   }
+  if(role==="BACK_SWEEPER") return tacticalTarget("SWEEPER",rider,ball);
   const ownGoalZ=rider.team==="blue"?38:-38;
   return{x:clamp(rider.homePosition.x*.65+ball.x*.35,-20,20),z:clamp(ownGoalZ+(ball.z-ownGoalZ)*.28,-37,37)};
 }
