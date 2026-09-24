@@ -3,7 +3,7 @@ import React from 'react';
 export const PitchEnvironment: React.FC = () => {
   return (
     <group name="pbr-pitch-environment">
-      {/* 3D Touchline Scoreboard - Angled in upper right view */}
+      {/* 3D Touchline Scoreboard */}
       <group name="pbr-touchline-scoreboard" position={[7.5, 0, -12]} rotation={[0, -0.4, 0]}>
         <mesh position={[-1.2, 1.2, 0]} castShadow>
           <cylinderGeometry args={[0.08, 0.08, 2.4, 12]} />
@@ -31,7 +31,7 @@ export const PitchEnvironment: React.FC = () => {
         </mesh>
       </group>
 
-      {/* Perimeter Sideboards - Visible along field edges */}
+      {/* Perimeter Sideboards */}
       <mesh position={[-8.2, 0.1, 0]} castShadow>
         <boxGeometry args={[0.2, 0.25, 60]} />
         <meshStandardMaterial color="#ffffff" roughness={0.3} />
