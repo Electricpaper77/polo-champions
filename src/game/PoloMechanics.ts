@@ -12,6 +12,8 @@ export const BALL_FIELD_DRAG = 0.85;
 export const BALL_SURFACE_FRICTION = 0.15;
 export const BALL_BOUNCE_ELASTICITY = 0.42;
 export const BALL_STOP_SPEED = .08;
+export const BALL_ROLLING_RESISTANCE = 3.2;
+export const BALL_AIR_DRAG = .015;
 export const MALLET_HEAD_RADIUS = .09;
 export const BALL_RADIUS = .42;
 export const MALLET_CONTACT_RADIUS = MALLET_HEAD_RADIUS + BALL_RADIUS;
@@ -129,8 +131,11 @@ export function isBallInMalletSweep(input: MalletSweepInput) {
 }
 
 export function applyBallFieldDrag(velocity: { x: number; z: number }, dt: number) {
-  const attenuation = Math.exp(-BALL_FIELD_DRAG * Math.max(0, dt));
-  const next = { x: velocity.x * attenuation, z: velocity.z * attenuation };
+  const safeDt = Math.max(0, dt), speed = Math.hypot(velocity.x, velocity.z);
+  if (speed === 0) return { x: 0, z: 0 };
+  const deceleration = BALL_ROLLING_RESISTANCE + BALL_AIR_DRAG * speed * speed;
+  const nextSpeed = Math.max(0, speed - deceleration * safeDt) * Math.exp(-BALL_FIELD_DRAG * safeDt);
+  const next = { x: velocity.x / speed * nextSpeed, z: velocity.z / speed * nextSpeed };
   return Math.hypot(next.x, next.z) < BALL_STOP_SPEED ? { x: 0, z: 0 } : next;
 }
 

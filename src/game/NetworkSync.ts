@@ -11,8 +11,8 @@ export type InputCommand = { sequence: number; clientTime: number; reportedPingM
 export type CompressedSnapshot = [number, number, Array<[PoloRiderEntity["id"],number,number,number,number,number,Gait]>, [number,number,number,number,number], number];
 
 const NETWORK_ARCHETYPE_BY_ID: Record<PoloRiderEntity["id"], HorseArchetype> = {
-  player:"ALL_ROUNDER", blue_2:"SPRINTER", blue_3:"ALL_ROUNDER", blue_4:"POWER", blue_5:"SPRINTER", blue_6:"POWER",
-  red_1:"SPRINTER", red_2:"ALL_ROUNDER", red_3:"SPRINTER", red_4:"POWER", red_5:"ALL_ROUNDER", red_6:"POWER",
+  player:"ALL_ROUNDER", blue_2:"SPRINTER", blue_3:"ALL_ROUNDER", blue_4:"POWER",
+  red_1:"SPRINTER", red_2:"ALL_ROUNDER", red_3:"SPRINTER", red_4:"POWER",
 };
 
 export function createInitialNetworkSnapshot(serverTime = 0): NetworkSnapshot {

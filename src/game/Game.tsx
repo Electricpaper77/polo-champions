@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useInput, type Input } from "./InputManager";
 import { GOAL_CELEBRATION_MS, initializeMatchEntities, useMatch } from "./GameState";
-import { advanceStamina, getBodyLean, getGait, integrateHorseMotion, MAX_GALLOP_SPEED, type HorseArchetype } from "./HorseControls";
+import { advanceStamina, getDynamicBank, getGait, integrateHorseMotion, MAX_GALLOP_SPEED, type HorseArchetype } from "./HorseControls";
 import { BALL_BOUNCE_ELASTICITY, BALL_FIELD_DRAG, BALL_MIN_Y, BALL_SURFACE_FRICTION, canApplyStrike, getBallResetState, getMalletAngle, getMalletSweepContact, getShotImpulse, getStrikePhase } from "./PoloMechanics";
 import { advanceBotRider, assignAITacticalRoles, detectGoalCrossing, getBotShotImpulse, getBotTacticalTarget, isBallInPlay, isLineOfBallFoul, resolveRideOffCollision, selectBallChasers } from "./MatchRules";
 import { CareerStatsManager } from "../services/CareerStats";
@@ -28,7 +28,7 @@ function NetworkNotice(){const [message,setMessage]=useState("");const timer=use
 function CareerMatchEnd(){const seconds=useMatch(s=>s.seconds),score=useMatch(s=>s.score),recorded=useRef(false);useEffect(()=>{if(seconds===0&&!recorded.current){recorded.current=true;CareerStatsManager.recordMatch({won:score.blue>score.red,goals:score.blue,rideOffs:0});matchTelemetry.completeMatch()}},[seconds,score]);return null}
 function Ball({api}:{api:React.MutableRefObject<RapierRigidBody|null>}){const key=useMatch(s=>s.resetKey);useEffect(()=>{const reset=getBallResetState();api.current?.setTranslation(reset.position,true);api.current?.setLinvel(reset.velocity,true);api.current?.setAngvel({x:0,y:0,z:0},true)},[key,api]);useFrame(()=>{const body=api.current,position=body?.translation();if(body&&position&&position.y<BALL_MIN_Y){body.setTranslation({x:position.x,y:BALL_MIN_Y,z:position.z},true);const velocity=body.linvel();body.setLinvel({x:velocity.x,y:Math.max(0,velocity.y),z:velocity.z},true)}});return <RigidBody ref={api} colliders="ball" ccd linearDamping={BALL_FIELD_DRAG} angularDamping={.82} restitution={BALL_BOUNCE_ELASTICITY} friction={BALL_SURFACE_FRICTION} position={[0,.15,0]}><mesh castShadow><sphereGeometry args={[.42,20,16]}/><meshPhysicalMaterial color="#ffffff" roughness={.24} metalness={.03} clearcoat={.5}/></mesh><mesh position={[0,-.414,0]} rotation={[-Math.PI/2,0,0]}><circleGeometry args={[.34,18]}/><meshBasicMaterial color="#172014" transparent opacity={.28} depthWrite={false}/></mesh></RigidBody>}
 
-const NETWORK_ENTITY_IDS: PoloRiderEntity["id"][] = ["player", "blue_2", "blue_3", "blue_4", "blue_5", "blue_6", "red_1", "red_2", "red_3", "red_4", "red_5", "red_6"];
+const NETWORK_ENTITY_IDS: PoloRiderEntity["id"][] = ["player", "blue_2", "blue_3", "blue_4", "red_1", "red_2", "red_3", "red_4"];
 
 function cloneEntities(entities: ReturnType<typeof initializeMatchEntities>) {
   return Object.fromEntries(Object.entries(entities).map(([id, entity]) => [id, { ...entity, position: { ...entity.position }, velocity: { ...entity.velocity } }])) as ReturnType<typeof initializeMatchEntities>;
@@ -155,7 +155,7 @@ function RealtimeHorse({ ball, input, cameraMode }: { ball: React.RefObject<Rapi
       group.current?.position.copy(position.current);
       if (group.current) {
         group.current.rotation.y = yaw.current;
-        group.current.rotation.z = THREE.MathUtils.damp(group.current.rotation.z, getBodyLean(currentInput.steer, speed.current, activeArchetype), 9, delta);
+        group.current.rotation.z = THREE.MathUtils.damp(group.current.rotation.z, getDynamicBank(speed.current, currentInput.steer * 1.5), 9, delta);
       }
 
       const holding = currentInput.strike || currentInput.backhand;

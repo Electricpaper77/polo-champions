@@ -8,6 +8,8 @@ export const BRAKE_TAU = 0.45;
 export const GALLOP_GAIT_THRESHOLD = MAX_GALLOP_SPEED * .75;
 export const GALLOP_STAMINA_DRAIN = 0.24;
 export const STAMINA_RECOVERY = 0.12;
+export const TURF_DRAG = .08;
+export const TURN_BASE_RATE = 1.5;
 
 export type Gait = "IDLE" | "WALK" | "TROT" | "CANTER" | "GALLOP";
 export type RiderPose = { torsoPitch: number; hipPitch: number; seatHeight: number; strideCadence: number };
@@ -53,9 +55,7 @@ export function exponentialAlpha(dt: number, tau: number) {
 }
 
 export function steeringRate(speed: number, agility = 1) {
-  const ratio = clamp(Math.abs(speed) / MAX_GALLOP_SPEED, 0, 1);
-  const penalty = ratio * ratio * (3 - 2 * ratio);
-  return lerp(1.5, .55, penalty) * agility;
+  return TURN_BASE_RATE / (1 + .05 * Math.abs(speed)) * agility;
 }
 
 export function getTargetSpeed({ throttle, gallop, brake }: HorseMotionInput, archetype: HorseArchetype = "ALL_ROUNDER") {
@@ -111,25 +111,21 @@ export function integrateHorseMotion(state: HorseMotionState, input: HorseMotion
   const safeDelta = Math.max(0, dt);
   const config = getHorseArchetype(archetype);
   const currentSpeed = Math.hypot(state.velocity.x, state.velocity.z);
-  const targetSpeed = getTargetSpeed(input, archetype);
+  const targetSpeed = getTargetSpeed(input, archetype), maxSpeed = MAX_GALLOP_SPEED * config.topSpeed;
   const currentForward = { x: Math.sin(state.heading), z: Math.cos(state.heading) };
   const signedForwardSpeed = state.velocity.x * currentForward.x + state.velocity.z * currentForward.z;
   const direction = Math.abs(signedForwardSpeed) > .05 ? Math.sign(signedForwardSpeed) : targetSpeed < 0 ? -1 : 1;
-  const heading = state.heading + clamp(input.steer, -1, 1) * steeringRate(currentSpeed, config.agility) * direction * safeDelta;
-  const desiredVelocity = { x: Math.sin(heading) * targetSpeed, z: Math.cos(heading) * targetSpeed };
-  const tau = input.brake
-    ? BRAKE_TAU
-    : Math.abs(targetSpeed) > currentSpeed
-      ? ACCELERATION_TAU / config.acceleration
-      : COAST_TAU;
-  const alpha = exponentialAlpha(safeDelta, tau);
-  let velocity = {
-    x: lerp(state.velocity.x, desiredVelocity.x, alpha),
-    z: lerp(state.velocity.z, desiredVelocity.z, alpha),
-  };
+  const yawRate = clamp(input.steer, -1, 1) * steeringRate(currentSpeed, config.agility) * direction;
+  const heading = state.heading + yawRate * safeDelta;
+  const forward = { x: Math.sin(heading), z: Math.cos(heading) };
+  const accelerating = Math.abs(targetSpeed) > currentSpeed && !input.brake;
+  const acceleration = accelerating ? (12 * config.acceleration) * (1 - Math.pow(clamp(currentSpeed / Math.max(maxSpeed, .01), 0, 1), 1.5)) : 0;
+  const braking = input.brake ? 18 : targetSpeed === 0 ? TURF_DRAG * currentSpeed : 0;
+  const signed = Math.max(0, currentSpeed + (acceleration - braking) * safeDelta);
+  let velocity = { x: forward.x * signed, z: forward.z * signed };
   const magnitude = Math.hypot(velocity.x, velocity.z);
-  if (magnitude > MAX_GALLOP_SPEED) {
-    const scale = MAX_GALLOP_SPEED / magnitude;
+  if (magnitude > maxSpeed) {
+    const scale = maxSpeed / magnitude;
     velocity = { x: velocity.x * scale, z: velocity.z * scale };
   }
   return {
@@ -141,6 +137,8 @@ export function integrateHorseMotion(state: HorseMotionState, input: HorseMotion
     },
   };
 }
+
+export function getDynamicBank(speed: number, yawRate: number) { return clamp(-speed * yawRate * .12, -.35, .35); }
 
 export function getBodyLean(steer: number, speed: number, archetype: HorseArchetype = "ALL_ROUNDER") {
   const config = getHorseArchetype(archetype);
