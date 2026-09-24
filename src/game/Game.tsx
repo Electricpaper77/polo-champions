@@ -6,7 +6,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useInput, type Input } from "./InputManager";
 import { GOAL_CELEBRATION_MS, initializeMatchEntities, useMatch } from "./GameState";
 import { advanceStamina, getBodyLean, getGait, integrateHorseMotion, MAX_GALLOP_SPEED, type HorseArchetype } from "./HorseControls";
-import { BALL_BOUNCE_ELASTICITY, BALL_FIELD_DRAG, BALL_SURFACE_FRICTION, canApplyStrike, getBallResetState, getMalletAngle, getShotImpulse, getStrikePhase, isBallInMalletSweep } from "./PoloMechanics";
+import { BALL_BOUNCE_ELASTICITY, BALL_FIELD_DRAG, BALL_SURFACE_FRICTION, canApplyStrike, getBallResetState, getMalletAngle, getMalletSweepContact, getShotImpulse, getStrikePhase } from "./PoloMechanics";
 import { advanceBotRider, assignAITacticalRoles, detectGoalCrossing, getBotShotImpulse, getBotTacticalTarget, isBallInPlay, isLineOfBallFoul, resolveRideOffCollision, selectBallChasers } from "./MatchRules";
 import { CareerStatsManager } from "../services/CareerStats";
 import { PoloEntity } from "./PoloEntity";
@@ -172,7 +172,7 @@ function RealtimeHorse({ ball, input }: { ball: React.RefObject<RapierRigidBody 
       cooldown.current -= delta;
       if (canApplyStrike(phase, contactFired.current) && cooldown.current <= 0 && ball.current) {
         const ballPosition = ball.current.translation();
-        const hit = isBallInMalletSweep({
+        const contact = getMalletSweepContact({
           riderPosition: { x: position.current.x, z: position.current.z },
           ballPosition: { x: ballPosition.x, z: ballPosition.z },
           yaw: yaw.current,
@@ -181,7 +181,7 @@ function RealtimeHorse({ ball, input }: { ball: React.RefObject<RapierRigidBody 
           previousElapsed: previousStrikeElapsed,
           currentElapsed: strikeClock.current,
         });
-        if (hit) {
+        if (contact.hit) {
           contactFired.current = true;
           const releaseVelocity = getShotImpulse({
             aimX: releasedAim.current.x,
@@ -191,6 +191,7 @@ function RealtimeHorse({ ball, input }: { ball: React.RefObject<RapierRigidBody 
             charge: releasedCharge.current,
             speed: speed.current,
             horseVelocity: { x: velocity.current.x, y: velocity.current.y, z: velocity.current.z },
+            swingTangent: contact.tangent,
           });
           ball.current.setLinvel(releaseVelocity, true);
           cooldown.current = .38;

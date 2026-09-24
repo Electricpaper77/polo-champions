@@ -3,14 +3,14 @@ import * as THREE from "three";
 
 const ADVERTISERS = ["POLO CHAMPIONS", "KING'S CUP", "ROYAL STABLES", "BRITISH POLO"];
 
-function Crowd({ count = 180 }: { count?: number }) {
+function Crowd({ count = 120 }: { count?: number }) {
   const spectators = useRef<THREE.InstancedMesh>(null);
   useLayoutEffect(() => {
     if (!spectators.current) return;
     const matrix = new THREE.Matrix4(), position = new THREE.Vector3(), rotation = new THREE.Quaternion(), scale = new THREE.Vector3();
     for (let index = 0; index < count; index += 1) {
       const row = Math.floor(index / 30), seat = index % 30;
-      position.set(17.5 + row * .52, 1.1 + row * .46, -30 + seat * 2.05 + (row % 2) * .5);
+      position.set(row * .8, (row * .55 + .55) + .275, -27 + seat * 1.86 + (row % 2) * .5);
       rotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
       scale.set(.55 + (index % 3) * .08, .9 + (index % 4) * .06, .55);
       matrix.compose(position, rotation, scale);
@@ -37,10 +37,10 @@ export function StadiumEnvironment() {
         <mesh position={[.68, -.18, 0]} rotation={[0, 0, .62]}><boxGeometry args={[.06, .72, .06]} /><meshStandardMaterial color="#563b24" /></mesh>
       </group>)}
     </group>)}
-    <group name="east-grandstand" position={[18, 0, 0]}>
-      {[0, 1, 2, 3].map(row => <mesh key={row} position={[row * .66, .35 + row * .48, 0]} castShadow><boxGeometry args={[1.15, .22, 64]} /><meshStandardMaterial color="#344658" roughness={.72} /></mesh>)}
-      <mesh position={[1.35, 4.15, 0]} rotation={[0, 0, -.12]} castShadow><boxGeometry args={[.22, .16, 68]} /><meshStandardMaterial color="#13202c" roughness={.5} /></mesh>
-      <mesh position={[2.05, 3.7, 0]} rotation={[0, 0, -.12]} castShadow><boxGeometry args={[2.1, .12, 68]} /><meshStandardMaterial color="#182c3d" roughness={.46} /></mesh>
+    <group name="east-grandstand" position={[24, 0, 0]}>
+      {[0, 1, 2, 3].map(row => <mesh key={row} position={[row * .8, row * .55 + .275, 0]} castShadow><boxGeometry args={[.8, .55, 55]} /><meshStandardMaterial color="#344658" roughness={.72} /></mesh>)}
+      <mesh position={[1.45, 3.95, 0]} rotation={[0, 0, -.12]} castShadow><boxGeometry args={[.22, .16, 59]} /><meshStandardMaterial color="#13202c" roughness={.5} /></mesh>
+      <mesh position={[2.1, 3.52, 0]} rotation={[0, 0, -.12]} castShadow><boxGeometry args={[2.1, .12, 59]} /><meshStandardMaterial color="#182c3d" roughness={.46} /></mesh>
       <Crowd />
     </group>
     <group name="stadium-led-scoreboard" position={[14, 0, -15]} rotation={[0, -.42, 0]}>

@@ -11,7 +11,9 @@ export const BALL_FIELD_DRAG = 0.85;
 export const BALL_SURFACE_FRICTION = 0.15;
 export const BALL_BOUNCE_ELASTICITY = 0.42;
 export const BALL_STOP_SPEED = .08;
-export const MALLET_CONTACT_RADIUS = 1.05;
+export const MALLET_HEAD_RADIUS = .09;
+export const BALL_RADIUS = .42;
+export const MALLET_CONTACT_RADIUS = MALLET_HEAD_RADIUS + BALL_RADIUS;
 
 export function getStrikePhase(elapsed: number, charging: boolean): StrikePhase {
   if (charging) return "WIND_UP";
@@ -36,6 +38,7 @@ export type ShotInput = {
   charge: number;
   speed: number;
   horseVelocity?: { x: number; y?: number; z: number };
+  swingTangent?: { x: number; z: number };
 };
 
 const clamp = (value: number, minimum: number, maximum: number) => Math.max(minimum, Math.min(maximum, value));
@@ -45,16 +48,20 @@ export function getSwingPowerMultiplier(charge: number) {
   return lerp(MIN_SWING_POWER, MAX_SWING_POWER, clamp(charge, 0, 1));
 }
 
-export function getShotImpulse({ aimX, aimY = 0, yaw, backhand, charge, speed, horseVelocity }: ShotInput) {
+export function getShotImpulse({ aimX, aimY = 0, yaw, backhand, charge, speed, horseVelocity, swingTangent }: ShotInput) {
   const localX = clamp(aimX, -1, 1) * .7;
   const magnitude = Math.hypot(localX, 1);
-  const direction = {
+  let direction = {
     x: (localX * Math.cos(yaw) + Math.sin(yaw)) / magnitude,
     z: (-localX * Math.sin(yaw) + Math.cos(yaw)) / magnitude,
   };
   if (backhand) {
     direction.x *= -1;
     direction.z *= -1;
+  }
+  if (swingTangent && Math.hypot(swingTangent.x, swingTangent.z) > .0001) {
+    const length = Math.hypot(swingTangent.x, swingTangent.z);
+    direction = { x: swingTangent.x / length, z: swingTangent.z / length };
   }
   const forwardVelocity = horseVelocity ?? { x: Math.sin(yaw) * speed, y: 0, z: Math.cos(yaw) * speed };
   const normalizedCharge = clamp(charge, 0, 1);
@@ -100,7 +107,7 @@ export function getMalletHeadPosition({ riderPosition, yaw, aimX, backhand, cont
   };
 }
 
-function pointSegmentDistance(point: { x: number; z: number }, start: { x: number; z: number }, end: { x: number; z: number }) {
+export function pointSegmentDistance(point: { x: number; z: number }, start: { x: number; z: number }, end: { x: number; z: number }) {
   const dx = end.x - start.x;
   const dz = end.z - start.z;
   const lengthSquared = dx * dx + dz * dz;
@@ -108,18 +115,16 @@ function pointSegmentDistance(point: { x: number; z: number }, start: { x: numbe
   return Math.hypot(point.x - (start.x + dx * amount), point.z - (start.z + dz * amount));
 }
 
+export function getMalletSweepContact(input: MalletSweepInput): { hit: boolean; tangent: { x: number; z: number } } {
+  if (input.currentElapsed < STRIKE_CONTACT_START || input.previousElapsed > STRIKE_CONTACT_END) return { hit: false, tangent: { x: 0, z: 0 } };
+  const previous = getMalletHeadPosition({ ...input, contactProgress: getStrikeContactProgress(input.previousElapsed) });
+  const current = getMalletHeadPosition({ ...input, contactProgress: getStrikeContactProgress(input.currentElapsed) });
+  const tangent = { x: current.x - previous.x, z: current.z - previous.z };
+  return { hit: pointSegmentDistance(input.ballPosition, previous, current) <= MALLET_CONTACT_RADIUS, tangent };
+}
+
 export function isBallInMalletSweep(input: MalletSweepInput) {
-  if (input.currentElapsed < STRIKE_CONTACT_START || input.previousElapsed > STRIKE_CONTACT_END) return false;
-  const from = getStrikeContactProgress(input.previousElapsed);
-  const to = getStrikeContactProgress(input.currentElapsed);
-  const steps = Math.max(1, Math.ceil(Math.abs(to - from) * 8));
-  let previous = getMalletHeadPosition({ ...input, contactProgress: from });
-  for (let step = 1; step <= steps; step += 1) {
-    const current = getMalletHeadPosition({ ...input, contactProgress: lerp(from, to, step / steps) });
-    if (pointSegmentDistance(input.ballPosition, previous, current) <= MALLET_CONTACT_RADIUS) return true;
-    previous = current;
-  }
-  return pointSegmentDistance(input.ballPosition, previous, previous) <= MALLET_CONTACT_RADIUS;
+  return getMalletSweepContact(input).hit;
 }
 
 export function applyBallFieldDrag(velocity: { x: number; z: number }, dt: number) {

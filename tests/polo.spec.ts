@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { ACCELERATION_TAU, advanceHorseSpeed, advanceStamina, BRAKE_SPEED, BRAKE_TAU, COAST_TAU, exponentialAlpha, GALLOP_GAIT_THRESHOLD, GALLOP_SPEED, getArchetypeCoat, getBodyLean, getCameraOffset, getGait, getHorseArchetype, getRiderPose, getSteeringRate, getTargetSpeed, HORSE_ARCHETYPES, HORSE_COATS, integrateHorseMotion, MAX_GALLOP_SPEED, NORMAL_RIDE_SPEED, steeringRate, TEAM_PRESENTATION } from "../src/game/HorseControls";
-import { applyBallFieldDrag, BALL_BOUNCE_ELASTICITY, BALL_FIELD_DRAG, BASE_BALL_IMPULSE, canApplyStrike, getBallResetState, getMalletAngle, getMalletHeadPosition, getShotImpulse, getStrikePhase, getSwingPowerMultiplier, INITIAL_GOAL_STATE, isBallInMalletSweep, isStrikeContact, transitionGoal } from "../src/game/PoloMechanics";
+import { applyBallFieldDrag, BALL_BOUNCE_ELASTICITY, BALL_FIELD_DRAG, BASE_BALL_IMPULSE, canApplyStrike, getBallResetState, getMalletAngle, getMalletHeadPosition, getMalletSweepContact, getShotImpulse, getStrikePhase, getSwingPowerMultiplier, INITIAL_GOAL_STATE, isBallInMalletSweep, isStrikeContact, MALLET_CONTACT_RADIUS, pointSegmentDistance, transitionGoal } from "../src/game/PoloMechanics";
 import { applyRideOffDisplacement, create2v2, decideBot, goalResult, isLineOfBallFoul, legalRideOff, resolveRideOffCollision, rideOffImpulse } from "../src/game/MatchRules";
 import { FoulToast } from "../src/game/Game";
 import { initializeMatchEntities } from "../src/game/GameState";
@@ -172,6 +172,15 @@ test("mallet contact uses the swept arc rather than broad rider proximity", () =
   const riderPosition={x:0,z:0},ballPosition=getMalletHeadPosition({riderPosition,yaw:0,aimX:0,backhand:false,contactProgress:.5});
   expect(isBallInMalletSweep({riderPosition,ballPosition,yaw:0,aimX:0,backhand:false,previousElapsed:.1,currentElapsed:.17})).toBe(true);
   expect(isBallInMalletSweep({riderPosition,ballPosition:{x:-4,z:0},yaw:0,aimX:0,backhand:false,previousElapsed:.1,currentElapsed:.17})).toBe(false);
+});
+
+test("swept mallet contact uses segment radii and sends the shot along its tangent", () => {
+  expect(pointSegmentDistance({x:1,z:1},{x:0,z:0},{x:2,z:0})).toBe(1);
+  expect(MALLET_CONTACT_RADIUS).toBeCloseTo(.51,8);
+  const contact=getMalletSweepContact({riderPosition:{x:0,z:0},ballPosition:{x:0,z:1},yaw:0,aimX:0,backhand:false,previousElapsed:.1,currentElapsed:.17});
+  expect(contact.tangent.z).toBeGreaterThan(0);
+  const shot=getShotImpulse({aimX:0,yaw:0,backhand:false,charge:.5,speed:0,swingTangent:{x:1,z:0}});
+  expect(shot.x).toBeGreaterThan(0); expect(Math.abs(shot.z)).toBeLessThan(.001);
 });
 
 test("field drag slows the ball smoothly and settles low-speed rolls", () => {
