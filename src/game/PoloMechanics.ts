@@ -1,4 +1,5 @@
-export const BALL_START = { x: 0, y: 0.65, z: 0 };
+export const BALL_START = { x: 0, y: 0.15, z: 0 };
+export const BALL_MIN_Y = .06;
 export type StrikePhase = "WIND_UP" | "CONTACT" | "FOLLOW_THROUGH" | "RECOVERY" | "READY";
 export const STRIKE_CONTACT_START = .10;
 export const STRIKE_CONTACT_END = .17;

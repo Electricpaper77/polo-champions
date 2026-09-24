@@ -27,7 +27,8 @@ const MIN_SWING_POWER = .5;
 const MAX_SWING_POWER = 2;
 const BALL_FIELD_DRAG = .9;
 const BALL_STOP_SPEED = .08;
-const BALL_FLOOR_Y = .65;
+const BALL_FLOOR_Y = .06;
+const BALL_START_Y = .15;
 const BALL_GRAVITY = 9.81;
 const MALLET_CONTACT_RADIUS = 1.05;
 const GOAL_LINE_Z = 42;
@@ -36,7 +37,7 @@ const GOAL_CELEBRATION_MS = 1800;
 const RIDE_OFF_ACTIVE_MULTIPLIER = 1.45;
 const MAX_RIDE_OFF_DEFLECTION = 5;
 const ENTITY_IDS = ["player", "blue_2", "blue_3", "blue_4", "blue_5", "blue_6", "red_1", "red_2", "red_3", "red_4", "red_5", "red_6"];
-const STARTS = [[0, 28, Math.PI], [-13, 22, Math.PI], [13, 22, Math.PI], [0, 15, Math.PI], [-14, 10, Math.PI], [14, 10, Math.PI], [0, -28, 0], [13, -22, 0], [-13, -22, 0], [0, -15, 0], [14, -10, 0], [-14, -10, 0]];
+const STARTS = [[-8.5, 15, Math.PI], [8.5, 15, Math.PI], [-8.5, 9, Math.PI], [8.5, 9, Math.PI], [-8.5, 3, Math.PI], [8.5, 3, Math.PI], [8.5, -15, 0], [-8.5, -15, 0], [8.5, -9, 0], [-8.5, -9, 0], [8.5, -3, 0], [-8.5, -3, 0]];
 const START_BY_ID = new Map(ENTITY_IDS.map((id, index) => [id, STARTS[index]]));
 const POWER_IDS = new Set(["blue_4", "blue_6", "red_4", "red_6"]);
 const SPRINTER_IDS = new Set(["blue_2", "blue_5", "red_1", "red_3"]);
@@ -153,7 +154,7 @@ const integrateHorseMotion = (entity, input, delta) => {
   };
 };
 const angleDelta = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
-const initialState = () => ({ tick: 0, serverTime: Date.now(), ackSequence: 0, started: false, entities: ENTITY_IDS.map((id, index) => ({ id, position: { x: STARTS[index][0], z: STARTS[index][1] }, velocity: { x: 0, z: 0 }, heading: STARTS[index][2], gait: "IDLE" })), ball: { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: BALL_FLOOR_Y, verticalVelocity: 0 } });
+const initialState = () => ({ tick: 0, serverTime: Date.now(), ackSequence: 0, started: false, entities: ENTITY_IDS.map((id, index) => ({ id, position: { x: STARTS[index][0], z: STARTS[index][1] }, velocity: { x: 0, z: 0 }, heading: STARTS[index][2], gait: "IDLE" })), ball: { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: BALL_START_Y, verticalVelocity: 0 } });
 const compress = (state, ackSequence = 0) => [state.tick, state.serverTime, state.entities.map(entity => [entity.id, entity.position.x, entity.position.z, entity.velocity.x, entity.velocity.z, entity.heading, entity.gait]), [state.ball.position.x, state.ball.position.z, state.ball.velocity.x, state.ball.velocity.z, state.ball.y], ackSequence];
 const rooms = new Map();
 let queue = [];
@@ -340,7 +341,7 @@ function applyRideOffs(room, delta, now) {
 }
 
 function resetSimulation(room, resetScore = false) {
-  room.state.ball = { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: BALL_FLOOR_Y, verticalVelocity: 0 };
+  room.state.ball = { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: BALL_START_Y, verticalVelocity: 0 };
   room.state.started = false;
   room.goalCelebrationUntil = null;
   if (resetScore) room.score = { blue:0, red:0 };

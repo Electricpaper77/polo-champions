@@ -17,7 +17,7 @@ const NETWORK_ARCHETYPE_BY_ID: Record<PoloRiderEntity["id"], HorseArchetype> = {
 
 export function createInitialNetworkSnapshot(serverTime = 0): NetworkSnapshot {
   const entities = Object.values(initializeMatchEntities()).map(entity => ({ id:entity.id, position:{x:entity.position.x,z:entity.position.y}, velocity:{x:entity.velocity.x,z:entity.velocity.y}, heading:entity.heading, gait:"IDLE" as Gait }));
-  return { tick:0, serverTime, ackSequence:0, entities, ball:{position:{x:0,z:0},velocity:{x:0,z:0},y:.65} };
+  return { tick:0, serverTime, ackSequence:0, entities, ball:{position:{x:0,z:0},velocity:{x:0,z:0},y:.15} };
 }
 
 export function compressSnapshot(snapshot: NetworkSnapshot): CompressedSnapshot {
