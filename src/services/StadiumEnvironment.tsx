@@ -1,27 +1,15 @@
-import { useLayoutEffect, useRef } from "react";
-import * as THREE from "three";
-
 const ADVERTISERS = ["POLO CHAMPIONS", "KING'S CUP", "ROYAL STABLES", "BRITISH POLO"];
 
-function Crowd({ count = 120 }: { count?: number }) {
-  const spectators = useRef<THREE.InstancedMesh>(null);
-  useLayoutEffect(() => {
-    if (!spectators.current) return;
-    const matrix = new THREE.Matrix4(), position = new THREE.Vector3(), rotation = new THREE.Quaternion(), scale = new THREE.Vector3();
-    for (let index = 0; index < count; index += 1) {
-      const row = Math.floor(index / 30), seat = index % 30;
-      position.set(row * .8, (row * .55 + .55) + .275, -27 + seat * 1.86 + (row % 2) * .5);
-      rotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
-      scale.set(.55 + (index % 3) * .08, .9 + (index % 4) * .06, .55);
-      matrix.compose(position, rotation, scale);
-      spectators.current.setMatrixAt(index, matrix);
-    }
-    spectators.current.instanceMatrix.needsUpdate = true;
-  }, [count]);
-  return <instancedMesh ref={spectators} args={[undefined, undefined, count]} castShadow>
-    <capsuleGeometry args={[.2, .56, 4, 6]} />
-    <meshStandardMaterial color="#d4c6aa" roughness={.75} />
-  </instancedMesh>;
+export const crowdPositions = Array.from({ length: 120 }, (_, index) => {
+  const row = Math.floor(index / 30), seat = index % 30;
+  return { id: index, row, x: 24 + row * .8, y: row * .55 + .60, z: -27 + seat * 1.86 + (row % 2) * .5 };
+});
+
+function Crowd() {
+  return <>{crowdPositions.map(spectator => <group key={spectator.id} position={[spectator.x, spectator.y, spectator.z]}>
+    <mesh castShadow><cylinderGeometry args={[.13,.16,.52,8]} /><meshStandardMaterial color={spectator.id % 3 === 0 ? "#d8cab0" : "#4c657d"} roughness={.78} /></mesh>
+    <mesh position={[0,.39,0]} castShadow><sphereGeometry args={[.12,8,6]} /><meshStandardMaterial color="#c8906e" roughness={.86} /></mesh>
+  </group>)}</>;
 }
 
 /** Lightweight stadium dressing, kept separate from pitch physics and match logic. */
@@ -37,10 +25,10 @@ export function StadiumEnvironment() {
         <mesh position={[.68, -.18, 0]} rotation={[0, 0, .62]}><boxGeometry args={[.06, .72, .06]} /><meshStandardMaterial color="#563b24" /></mesh>
       </group>)}
     </group>)}
-    <group name="east-grandstand" position={[24, 0, 0]}>
-      {[0, 1, 2, 3].map(row => <mesh key={row} position={[row * .8, row * .55 + .275, 0]} castShadow><boxGeometry args={[.8, .55, 55]} /><meshStandardMaterial color="#344658" roughness={.72} /></mesh>)}
-      <mesh position={[1.45, 3.95, 0]} rotation={[0, 0, -.12]} castShadow><boxGeometry args={[.22, .16, 59]} /><meshStandardMaterial color="#13202c" roughness={.5} /></mesh>
-      <mesh position={[2.1, 3.52, 0]} rotation={[0, 0, -.12]} castShadow><boxGeometry args={[2.1, .12, 59]} /><meshStandardMaterial color="#182c3d" roughness={.46} /></mesh>
+    <group name="east-grandstand">
+      {[0, 1, 2, 3].map(row => <mesh key={row} position={[24 + row * .8, row * .55 + .275, 0]} castShadow><boxGeometry args={[.8, .55, 55]} /><meshStandardMaterial color="#344658" roughness={.72} /></mesh>)}
+      <mesh position={[25.45, 3.95, 0]} rotation={[0, 0, -.12]} castShadow><boxGeometry args={[.22, .16, 59]} /><meshStandardMaterial color="#13202c" roughness={.5} /></mesh>
+      <mesh position={[26.1, 3.52, 0]} rotation={[0, 0, -.12]} castShadow><boxGeometry args={[2.1, .12, 59]} /><meshStandardMaterial color="#182c3d" roughness={.46} /></mesh>
       <Crowd />
     </group>
     <group name="stadium-led-scoreboard" position={[14, 0, -15]} rotation={[0, -.42, 0]}>

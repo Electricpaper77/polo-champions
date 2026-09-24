@@ -61,7 +61,7 @@ export function PoloEntity({ entity, action = "NONE", motion }: { entity: PoloRi
       <primitive object={horse} scale={0.86} position={[0, 0, 0]} />
       <mesh position={[0, 1.42, -0.08]} castShadow><boxGeometry args={[0.84, 0.1, 1.1]} /><meshStandardMaterial color="#3D2314" roughness={0.76} /></mesh>
       <mesh position={[0, 1.39, -0.08]} castShadow><boxGeometry args={[0.98, 0.035, 1.28]} /><meshStandardMaterial color={presentation.saddlePad} roughness={0.72} /></mesh>
-      {[-.42,.42].map(x=><mesh key={`stirrup-${x}`} position={[x,.85,0]} castShadow><torusGeometry args={[.12,.025,6,10]} /><meshStandardMaterial color="#32d5df" metalness={.32} roughness={.34} /></mesh>)}
+      {[-.38,.38].map(x=><mesh key={`stirrup-${x}`} position={[x,.95,0]} castShadow><torusGeometry args={[.12,.025,6,10]} /><meshStandardMaterial color="#32d5df" metalness={.32} roughness={.34} /></mesh>)}
       {[-.37,.37].flatMap(x=>[-.56,.56].map(z=><mesh key={`${x}-${z}`} position={[x,.36,z]}><cylinderGeometry args={[.095,.095,.26,8]} /><meshStandardMaterial color={presentation.poloWrap} roughness={.66}/></mesh>))}
     </group>
     <group ref={riderPivot} position={[0, 1.44, -0.04]}>
