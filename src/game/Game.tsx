@@ -90,3 +90,5 @@ scene.add(audienceGroup);
 console.log('✅ Audience successfully added to scene with width', fieldWidth);
 return audienceGroup;
 }
+export { Game };
+
