@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { ACCELERATION_TAU, advanceHorseSpeed, advanceStamina, BRAKE_SPEED, BRAKE_TAU, COAST_TAU, exponentialAlpha, GALLOP_GAIT_THRESHOLD, GALLOP_SPEED, getArchetypeCoat, getBodyLean, getCameraOffset, getGait, getHorseArchetype, getRiderPose, getSteeringRate, getTargetSpeed, HORSE_ARCHETYPES, HORSE_COATS, integrateHorseMotion, MAX_GALLOP_SPEED, NORMAL_RIDE_SPEED, steeringRate, TEAM_PRESENTATION } from "../src/game/HorseControls";
-import { applyBallFieldDrag, BASE_BALL_IMPULSE, canApplyStrike, getBallResetState, getMalletAngle, getMalletHeadPosition, getShotImpulse, getStrikePhase, getSwingPowerMultiplier, INITIAL_GOAL_STATE, isBallInMalletSweep, isStrikeContact, transitionGoal } from "../src/game/PoloMechanics";
-import { applyRideOffDisplacement, create2v2, decideBot, goalResult, isLineOfBallFoul, legalRideOff, rideOffImpulse } from "../src/game/MatchRules";
+import { applyBallFieldDrag, BALL_BOUNCE_ELASTICITY, BALL_FIELD_DRAG, BASE_BALL_IMPULSE, canApplyStrike, getBallResetState, getMalletAngle, getMalletHeadPosition, getShotImpulse, getStrikePhase, getSwingPowerMultiplier, INITIAL_GOAL_STATE, isBallInMalletSweep, isStrikeContact, transitionGoal } from "../src/game/PoloMechanics";
+import { applyRideOffDisplacement, create2v2, decideBot, goalResult, isLineOfBallFoul, legalRideOff, resolveRideOffCollision, rideOffImpulse } from "../src/game/MatchRules";
 import { FoulToast } from "../src/game/Game";
 import { initializeMatchEntities } from "../src/game/GameState";
 async function enterMatch(page: import("@playwright/test").Page) { await page.getByRole("button", { name: "ENTER KING'S CUP" }).click(); await expect(page.getByText("SEARCHING FOR MATCH")).toBeVisible(); await expect(page.locator("canvas")).toBeVisible({ timeout: 8_000 }); }
@@ -125,6 +125,19 @@ test("B7 All-Rounder baseline and team presentation remain deterministic", () =>
   expect(TEAM_PRESENTATION.blue.jersey).not.toBe(TEAM_PRESENTATION.red.jersey);
   expect(TEAM_PRESENTATION.blue.poloWrap).not.toBe(TEAM_PRESENTATION.red.poloWrap);
   expect(TEAM_PRESENTATION.blue.trousers).toBe(TEAM_PRESENTATION.red.trousers);
+});
+
+test("B8 stadium turf and ball physics use the requested grounded tuning", () => {
+  expect(BALL_FIELD_DRAG).toBe(.85);
+  expect(BALL_BOUNCE_ELASTICITY).toBe(.42);
+  expect(applyBallFieldDrag({ x: 10, z: 0 }, 1).x).toBeLessThan(5);
+});
+
+test("B8 ride-off resistance makes Power harder to displace than a Sprinter", () => {
+  const entities=initializeMatchEntities(), sprinter={...entities.blue_2,position:{x:0,y:0},velocity:{x:0,y:6}}, power={...entities.red_4,position:{x:1,y:0},velocity:{x:0,y:6}};
+  const result=resolveRideOffCollision(sprinter,power,{aRideOff:true,bRideOff:false});
+  expect(result.corrected).toBe(true);
+  expect(result.winnerId).toBe("red_4");
 });
 
 test("charged shots scale power and aiming changes the impulse direction", () => {
