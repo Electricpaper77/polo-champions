@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import * as THREE from 'three';
 
 export interface AudienceOptions {
@@ -8,7 +7,7 @@ crowdCount?: number;
 }
 
 export function createAudience(scene: THREE.Scene, options: AudienceOptions = {}) {
-console.log('ðŸ‡ Audience.ts: Executing createAudience on scene', scene);
+console.log('🏇 Audience.ts: Executing createAudience on scene', scene);
 
 // Field width set to 24 (side-boards at x = +-12.3, right past outer horses)
 const fieldWidth = options.fieldWidth ?? 24;
@@ -88,6 +87,6 @@ if (crowdMesh.instanceColor) crowdMesh.instanceColor.needsUpdate = true;
 audienceGroup.add(crowdMesh);
 scene.add(audienceGroup);
 
-console.log('âœ… Audience successfully added to scene with width', fieldWidth);
+console.log('✅ Audience successfully added to scene with width', fieldWidth);
 return audienceGroup;
 }
