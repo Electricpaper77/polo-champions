@@ -101,3 +101,5 @@
 
 - UX design instruction and release polish pass (2026-09-25): `npm.cmd run build` passed with TypeScript and Vite (654 modules). Added the British Polo visual direction guide from the supplied reference images, plus a navy/gold/ivory loading presentation treatment while preserving the readable gameplay overlay for release testing.
 
+- Horse/player readability fix (2026-09-25): `npm.cmd run build` passed with TypeScript and Vite (654 modules). Converted the release-test playfield overlay riders from plain dots into directional mounted horse/player markers with team color, jersey numbering, and upright team tags so horses and players are readable during live play while the 3D scene is still guarded by the QA overlay.
+
