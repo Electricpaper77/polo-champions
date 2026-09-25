@@ -1,9 +1,10 @@
-export type CoreSound = "gallop_dirt" | "mallet_swing" | "wood_hit" | "referee_whistle" | "crowd_cheer";
+export type CoreSound = "gallop_dirt" | "mallet_swing" | "wood_hit" | "goal_post" | "referee_whistle" | "crowd_cheer";
 
 const SOUND_FILES: Record<CoreSound, string> = {
   gallop_dirt: "/audio/gallop_dirt.mp3",
   mallet_swing: "/audio/mallet_swing.mp3",
   wood_hit: "/audio/wood_hit.mp3",
+  goal_post: "/audio/goal_post.mp3",
   referee_whistle: "/audio/referee_whistle.mp3",
   crowd_cheer: "/audio/crowd_cheer.mp3",
 };
@@ -18,6 +19,7 @@ class SpatialAudioManager {
   private emitters = new Map<string, PannerNode>();
   private gallopClock = new Map<string, number>();
   private ambient: AudioBufferSourceNode | null = null;
+  private ambientGain: GainNode | null = null;
   private threeListener: THREE.AudioListener | null = null;
   private muted = false;
 
@@ -62,6 +64,7 @@ class SpatialAudioManager {
     panner.positionX.setValueAtTime(position.x, this.context.currentTime);
     panner.positionY.setValueAtTime(position.y, this.context.currentTime);
     panner.positionZ.setValueAtTime(position.z, this.context.currentTime);
+    if (id === "ball") this.setCrowdIntensity((Math.abs(position.z) - 27) / 15);
   }
 
   play(sound: CoreSound, emitterId?: string, playbackRate = 1) {
@@ -85,6 +88,11 @@ class SpatialAudioManager {
     if ((this.gallopClock.get(emitterId) ?? 0) > now - interval) return;
     this.gallopClock.set(emitterId, now);
     this.play("gallop_dirt", emitterId, .75 + Math.min(speed, 45) / 28);
+  }
+
+  setCrowdIntensity(intensity: number) {
+    if (!this.context || !this.ambientGain) return;
+    this.ambientGain.gain.setTargetAtTime(.045 + Math.max(0, Math.min(1, intensity)) * .11, this.context.currentTime, .18);
   }
 
   private ensure() {
@@ -121,12 +129,12 @@ class SpatialAudioManager {
     for (let index = 0; index < data.length; index += 1) data[index] = (Math.random() * 2 - 1) * .05;
     const source = context.createBufferSource(), filter = context.createBiquadFilter(), gain = context.createGain();
     source.buffer = buffer; source.loop = true; filter.type = "bandpass"; filter.frequency.value = 620; gain.gain.value = .09;
-    source.connect(filter).connect(gain).connect(this.master); source.start(); this.ambient = source;
+    source.connect(filter).connect(gain).connect(this.master); source.start(); this.ambient = source; this.ambientGain = gain;
   }
 
   private fallback(sound: CoreSound, destination: AudioNode | null, rate: number) {
     if (!this.context || !destination) return;
-    const tone: Record<CoreSound, number> = { gallop_dirt: 72, mallet_swing: 250, wood_hit: 138, referee_whistle: 1760, crowd_cheer: 330 };
+    const tone: Record<CoreSound, number> = { gallop_dirt: 72, mallet_swing: 250, wood_hit: 138, goal_post: 510, referee_whistle: 1760, crowd_cheer: 330 };
     const oscillator = this.context.createOscillator(), gain = this.context.createGain(), start = this.context.currentTime;
     oscillator.type = sound === "wood_hit" ? "square" : sound === "crowd_cheer" ? "sawtooth" : "triangle";
     oscillator.frequency.value = tone[sound] * rate; gain.gain.setValueAtTime(sound === "crowd_cheer" ? .025 : .12, start); gain.gain.exponentialRampToValueAtTime(.001, start + .12);

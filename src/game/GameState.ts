@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { getHorseArchetype, type Gait, type HorseArchetype } from "./HorseControls";
 import type { StrikePhase } from "./PoloMechanics";
 import { EconomyManager, kitColors, type HorseCoat } from "../services/Economy";
+import { AudioManager } from "./AudioManager";
 
 export type MatchPosition = { x: number; y: number };
 export type MatchTeam = "blue" | "red";
@@ -18,7 +19,7 @@ export type MatchState = { score:MatchScore; seconds:number; chukker:number; chu
 const telemetry:Telemetry={speed:0,stamina:1,gait:"IDLE",charge:0,strikePhase:"READY",player:{x:0,z:28},ball:{x:0,z:0}};
 export const useMatch = create<MatchState>((set) => ({
   score:{blue:0,red:0}, seconds:420, chukker:1, chukkerTransition:false, matchComplete:false, lobFouls:0, started:false, paused:false, message:"KICK OFF · MOVE TO START", celebratingGoal:null, activeFoul:null, resetKey:0, entities:initializeMatchEntities(), telemetry,
-  scoreGoal:(team,authoritativeScore)=>set(s=>({score:authoritativeScore??{...s.score,[team]:s.score[team]+1},started:false,celebratingGoal:team,message:`${team.toUpperCase()} GOAL!`,activeFoul:null})),
+  scoreGoal:(team,authoritativeScore)=>{ AudioManager.play("goal_post", "ball", 1.05); AudioManager.play("crowd_cheer"); set(s=>({score:authoritativeScore??{...s.score,[team]:s.score[team]+1},started:false,celebratingGoal:team,message:`${team.toUpperCase()} GOAL!`,activeFoul:null})); },
   completeGoalCelebration:()=>set(s=>s.celebratingGoal?({celebratingGoal:null,started:false,message:"KICK OFF · MOVE TO START",entities:initializeMatchEntities(),telemetry,resetKey:s.resetKey+1}):s),
   advanceChukker:()=>set(s=>({chukker:s.chukker+1,chukkerTransition:false,seconds:420,paused:false,started:false,message:s.chukker===2?"HALFTIME · PONY CHANGE":"NEXT CHUKKER · MOVE TO START",entities:initializeMatchEntities(),resetKey:s.resetKey+1})),
   resetBall:()=>set(s=>({started:false,celebratingGoal:null,resetKey:s.resetKey+1,message:"BALL RESET · MOVE TO START",activeFoul:null,entities:initializeMatchEntities(),telemetry})),

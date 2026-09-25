@@ -1,5 +1,7 @@
 # Build Log
 
+- Spatial audio, crowd atmosphere, and HUD polish update (2026-09-24): `npm.cmd run build` completed with refreshed TypeScript/Vite production assets.
+
 - Core gameplay physics and camera tuning update (2026-09-24): `npm.cmd run build` completed with TypeScript/Vite output generated successfully.
 
 - Dynamic multiplayer scaling update (2026-09-24): `node --check server/realtime-server.mjs` and `npm.cmd run build` passed (TypeScript, Vite, and PWA precache completed).
