@@ -29,15 +29,15 @@ function HorseBody({ coat, wrapColor, saddlePad }: { coat: string; wrapColor: st
     <group name="horse-torso">
       <mesh position={[0, 0.96, -0.04]} rotation={[Math.PI / 2, 0, 0]} castShadow receiveShadow>
         <capsuleGeometry args={[0.42, 1.32, 8, 18]} />
-        <meshStandardMaterial color={coat} roughness={0.72} metalness={0} />
+        <meshBasicMaterial color={coat} />
       </mesh>
       <mesh position={[0, 1.36, 0.66]} rotation={[0.48, 0, 0]} castShadow receiveShadow>
         <capsuleGeometry args={[0.18, 0.48, 6, 12]} />
-        <meshStandardMaterial color={coat} roughness={0.74} metalness={0} />
+        <meshBasicMaterial color={coat} />
       </mesh>
       <mesh position={[0, 1.48, 0.98]} rotation={[0.18, 0, 0]} castShadow receiveShadow>
         <boxGeometry args={[0.42, 0.32, 0.46]} />
-        <meshStandardMaterial color={coat} roughness={0.76} metalness={0} />
+        <meshBasicMaterial color={coat} />
       </mesh>
       <mesh position={[0, 1.66, 0.78]} castShadow>
         <coneGeometry args={[0.18, 0.34, 10]} />
@@ -52,7 +52,7 @@ function HorseBody({ coat, wrapColor, saddlePad }: { coat: string; wrapColor: st
           <group key={`${x}-${z}`}>
             <mesh position={[x, 0.52, z]} castShadow receiveShadow>
               <capsuleGeometry args={[0.085, 0.58, 5, 8]} />
-              <meshStandardMaterial color={coat} roughness={0.74} metalness={0} />
+              <meshBasicMaterial color={coat} />
             </mesh>
             <mesh position={[x, 0.27, z]} castShadow receiveShadow>
               <cylinderGeometry args={[0.102, 0.092, 0.3, 8]} />
@@ -94,7 +94,7 @@ function Rider({ jersey, helmet, label }: { jersey: string; helmet: string; labe
     <>
       <mesh position={[0, 0.44, -0.02]} castShadow receiveShadow>
         <capsuleGeometry args={[0.22, 0.48, 8, 12]} />
-        <meshStandardMaterial color={jersey} roughness={0.52} metalness={0} />
+        <meshBasicMaterial color={jersey} />
       </mesh>
       <mesh position={[0, 0.89, 0]} castShadow>
         <sphereGeometry args={[0.18, 16, 12]} />
@@ -178,7 +178,7 @@ export function PoloEntity({ entity, action = "NONE", motion }: PoloEntityProps)
       <group ref={root} name={`polo-entity-${entity.id}-lod`}>
         <mesh position={[0, 0.95, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow>
           <capsuleGeometry args={[0.44, 1.42, 6, 10]} />
-          <meshStandardMaterial color={coat} roughness={0.72} metalness={0} />
+          <meshBasicMaterial color={coat} />
         </mesh>
         <mesh position={[0, 2.1, -0.08]} castShadow>
           <sphereGeometry args={[0.24, 10, 8]} />
