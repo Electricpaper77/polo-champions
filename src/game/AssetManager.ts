@@ -20,20 +20,18 @@ async function loadAsset(url: string): Promise<void> {
   preparePbrModel(model);
 }
 
-/** Replaces reflection-prone authored PBR surfaces with brightly lit Lambert materials. */
+/** Preserves GLTF texture maps while neutralizing overly metallic authored PBR surfaces. */
 export function preparePbrModel(model: GLTF): GLTF {
   model.scene.traverse(child => {
     if (!(child instanceof THREE.Mesh)) return;
     child.castShadow = true;
     child.receiveShadow = true;
-    if (child.userData.lambertPrepared) return;
     const materials = Array.isArray(child.material) ? child.material : [child.material];
-    const lambert = materials.map(material => {
-      const source = material as THREE.MeshStandardMaterial;
-      return new THREE.MeshLambertMaterial({ color: source.color ?? 0x5c4033, map: source.map ?? null });
+    materials.forEach(material => {
+      if (!(material instanceof THREE.MeshStandardMaterial)) return;
+      material.metalness = 0;
+      material.needsUpdate = true;
     });
-    child.material = Array.isArray(child.material) ? lambert : lambert[0];
-    child.userData.lambertPrepared = true;
   });
   return model;
 }

@@ -1,5 +1,7 @@
 # Build Log
 
+- RoomEnvironment PBR reflection and tutorial layout hotfix (2026-09-25): `npm.cmd run build` passed (667 modules transformed; TypeScript and Vite clean).
+
 - Mesh brightness and bot-nameplate declutter hotfix (2026-09-24): `npm.cmd run build` passed (665 modules transformed; TypeScript and Vite clean).
 
 - Progression UX completion (2026-09-24): `npm.cmd run build` completed with refreshed TypeScript/Vite production assets.
