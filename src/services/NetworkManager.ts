@@ -21,7 +21,8 @@ type ClientMessage =
   | { type: "PING"; payload: { clientTime: number } }
   | { type: "RESET_MATCH"; payload: { matchId: string } }
   | { type: "INPUT"; payload: { matchId: string; entityId: PoloRiderEntity["id"]; command: InputCommand } }
-  | { type: "CHAT"; payload: { matchId: string; message: string } };
+  | { type: "CHAT"; payload: { matchId: string; message: string } }
+  | { type: "SHOT_ATTEMPT"; payload: { matchId: string } };
 type NetworkEvents = {
   status: { state: "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "OFFLINE"; detail?: string };
   queue: QueueStatus;
@@ -196,6 +197,7 @@ export class NetworkManager {
     return this.activeMatch ? this.send({ type: "RESET_MATCH", payload: { matchId: this.activeMatch.matchId } }) : false;
   }
   sendChat(message: string): boolean { const text = message.trim().slice(0, 160); return Boolean(text && this.activeMatch && this.send({ type:"CHAT", payload:{ matchId:this.activeMatch.matchId, message:text } })); }
+  sendShotAttempt(): boolean { return Boolean(this.activeMatch && this.send({ type:"SHOT_ATTEMPT", payload:{ matchId:this.activeMatch.matchId } })); }
 
   private send(message: ClientMessage): boolean {
     if (this.socket?.readyState !== 1) return false;

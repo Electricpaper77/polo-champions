@@ -12,7 +12,7 @@ import { CareerStatsManager } from "../services/CareerStats";
 import { PoloEntity } from "./PoloEntity";
 import { StadiumEnvironment } from "../services/StadiumEnvironment";
 import { FixedTimestepLoop } from "./GameLoop";
-import { SnapshotBuffer, reconcileLocalEntity, type InputCommand, type NetworkEntityState } from "./NetworkSync";
+import { NETWORK_JITTER_BUFFER_MS, SnapshotBuffer, reconcileLocalEntity, type InputCommand, type NetworkEntityState } from "./NetworkSync";
 import { networkManager, type PlayerControlChange } from "../services/NetworkManager";
 import { matchTelemetry } from "../services/Telemetry";
 import type { PoloRiderEntity } from "./GameState";
@@ -28,6 +28,7 @@ import { PostProcessing } from "./PostProcessing";
 import { Radar } from "../components/Radar";
 import { ChatBox } from "../components/ChatBox";
 import { NameTag, NameTagRenderer } from "./NameTags";
+import { buildBotBackfill } from "./Matchmaker";
 
 const FIELD_X=52, FIELD_Z=82;
 const ACTIVE_ARCHETYPE: HorseArchetype = "ALL_ROUNDER";
@@ -213,6 +214,7 @@ function RealtimeHorse({ ball, input, cameraMode }: { ball: React.RefObject<Rapi
             swingTangent: contact.tangent,
           });
           ball.current.setLinvel(releaseVelocity, true);
+          networkManager.sendShotAttempt();
           AudioEngine.playMalletStrike(speed.current);
           AudioManager.play("wood_hit", "ball", 1 + Math.min(speed.current, 30) / 60);
           cooldown.current = .38;
@@ -280,7 +282,7 @@ function RealtimeBots({ ball, input }: { ball: React.RefObject<RapierRigidBody |
     const store = useMatch.getState();
     const online = networkManager.getActiveMatch()?.mode === "WEBSOCKET";
     if (online) {
-      const snapshot = buffer.current.sample(Date.now() - 100);
+      const snapshot = buffer.current.sample(Date.now() - NETWORK_JITTER_BUFFER_MS);
       if (!snapshot) return;
       const next = cloneEntities(store.entities);
       for (const remote of snapshot.entities) {
@@ -355,7 +357,8 @@ function RealtimeBots({ ball, input }: { ball: React.RefObject<RapierRigidBody |
   });
 
   const names = networkManager.getActiveMatch()?.playerNames;
-  return <>{remoteIds.map(id => <group key={id} ref={element => { groups.current[id] = element; }} position={[entities[id].position.x, 0, entities[id].position.y]}><Suspense fallback={null}><PoloEntity entity={entities[id]} /></Suspense><NameTag name={names?.[id] ?? id.replace("_", " ").toUpperCase()}/></group>)}</>;
+  const backfill = buildBotBackfill(new Set(Object.keys(names ?? {}) as PoloRiderEntity["id"][]));
+  return <>{remoteIds.map(id => <group key={id} ref={element => { groups.current[id] = element; }} position={[entities[id].position.x, 0, entities[id].position.y]}><Suspense fallback={null}><PoloEntity entity={entities[id]} /></Suspense><NameTag name={names?.[id] ?? backfill.find(slot => slot.id === id)?.name ?? `[BOT] ${id}`}/></group>)}</>;
 }
 function Scene({input,cameraMode}:{input:React.RefObject<Input>;cameraMode:CameraMode}){const ball=useRef<RapierRigidBody>(null),previousBall=useRef({x:0,z:0});const score=useMatch(s=>s.scoreGoal),paused=useMatch(s=>s.paused),started=useMatch(s=>s.started),resetKey=useMatch(s=>s.resetKey);useEffect(()=>{previousBall.current={x:0,z:0}},[resetKey]);useFrame(()=>{const p=ball.current?.translation();if(!p)return;const current={x:p.x,z:p.z};if(!paused&&started){const team=detectGoalCrossing(previousBall.current,current);if(team){AudioEngine.playGoalHorn();AudioManager.play("referee_whistle");AudioManager.play("crowd_cheer");score(team)}}previousBall.current=current});return <><DynamicResolution/><color attach="background" args={["#b9d5dd"]}/><fog attach="fog" args={["#b9d5dd",45,125]}/><StadiumEnvironment/><Physics gravity={[0,-9.81,0]} timeStep={1/60} updateLoop="independent" interpolate><RigidBody type="fixed" colliders="cuboid" position={[0,-.25,0]}><mesh visible={false}><boxGeometry args={[FIELD_X, .5, FIELD_Z]}/></mesh></RigidBody><Ball api={ball}/></Physics><MatchParticles/><RealtimeHorse ball={ball} input={input} cameraMode={cameraMode}/><RealtimeBots ball={ball} input={input}/><Suspense fallback={null}><Environment preset="park" /></Suspense><PostProcessing/><NameTagRenderer/></>}
 function FieldRadar(){const entities=useMatch(s=>s.entities),ball=useMatch(s=>s.telemetry.ball),radar=(v:{x:number;z:number})=>({left:`${50+v.x/FIELD_X*90}%`,top:`${50-v.z/FIELD_Z*90}%`});return <section className="radar" aria-label="Field radar"><b>FIELD RADAR · 8 RIDERS</b>{Object.values(entities).map(rider=><i key={rider.id} title={rider.id} className={`pip rider ${rider.team} ${rider.id==="player"?"player":""}`} style={radar({x:rider.position.x,z:rider.position.y})}/>)}<i className="pip ball" title="ball" style={radar(ball)}/></section>}

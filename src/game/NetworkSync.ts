@@ -35,7 +35,7 @@ export function predictLocalEntity(entity: NetworkEntityState, command: InputCom
 }
 
 function lerpAngle(a:number,b:number,t:number){const delta=Math.atan2(Math.sin(b-a),Math.cos(b-a));return a+delta*t}
-function interpolateEntity(a:NetworkEntityState,b:NetworkEntityState,t:number):NetworkEntityState{return {...b,position:{x:a.position.x+(b.position.x-a.position.x)*t,z:a.position.z+(b.position.z-a.position.z)*t},velocity:{x:a.velocity.x+(b.velocity.x-a.velocity.x)*t,z:a.velocity.z+(b.velocity.z-a.velocity.z)*t},heading:lerpAngle(a.heading,b.heading,t)}}
+function interpolateEntity(a:NetworkEntityState,b:NetworkEntityState,t:number):NetworkEntityState{const u=Math.max(0,Math.min(1,t)),u2=u*u,u3=u2*u,dt=Math.max(.001,(b as NetworkEntityState & {serverTime?:number}).serverTime??.1),h00=2*u3-3*u2+1,h10=u3-2*u2+u,h01=-2*u3+3*u2,h11=u3-u2;const hermite=(start:number,end:number,startVelocity:number,endVelocity:number)=>h00*start+h10*startVelocity*dt+h01*end+h11*endVelocity*dt;return {...b,position:{x:hermite(a.position.x,b.position.x,a.velocity.x,b.velocity.x),z:hermite(a.position.z,b.position.z,a.velocity.z,b.velocity.z)},velocity:{x:a.velocity.x+(b.velocity.x-a.velocity.x)*u,z:a.velocity.z+(b.velocity.z-a.velocity.z)*u},heading:lerpAngle(a.heading,b.heading,u)}}
 
 export class SnapshotBuffer {
   private snapshots:NetworkSnapshot[]=[];
@@ -50,6 +50,7 @@ export class SnapshotBuffer {
   }
   clear(){this.snapshots=[]}
 }
+export const NETWORK_JITTER_BUFFER_MS = 100;
 
 export type ReconciliationPolicy = { deadZone: number; rubberBandThreshold: number; maxCorrectionPerStep: number; smoothing: number };
 export const DEFAULT_RECONCILIATION_POLICY: ReconciliationPolicy = { deadZone:.02, rubberBandThreshold:5, maxCorrectionPerStep:.75, smoothing:9 };

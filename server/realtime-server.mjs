@@ -208,6 +208,10 @@ function startRoom() {
     });
     send(client.socket, { type: "MATCH_START", payload: { matchId: id, assignedEntityId, reconnectToken, initialState: compress(state), mode: "WEBSOCKET", playerNames: Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.playerName])) } });
   });
+  for (const entity of state.entities) if (!room.slots.has(entity.id)) {
+    const role = ["ATTACKER", "MIDFIELDER", "DEFENDER", "SWEEPER"][ENTITY_IDS.filter(id => entityTeam({id}) === entityTeam(entity)).indexOf(entity.id)] ?? "SWEEPER";
+    room.slots.set(entity.id, { entityId:entity.id, playerName:`[BOT] ${role}`, reconnectToken:null, control:"BOT", socket:null, disconnectedAt:null, reconnectDeadline:null, role });
+  }
   rooms.set(id, room);
   queueStatus();
 }
@@ -404,6 +408,9 @@ wss.on("connection", socket => {
     } else if (message.type === "CHAT") {
       const room = rooms.get(message.payload?.matchId), entityId = room?.clients.get(socket), slot = entityId && room?.slots.get(entityId), text = String(message.payload?.message ?? "").trim().slice(0, 160);
       if (room && slot && text) broadcast(room, { type: "CHAT", payload: { sender: slot.playerName, message: text, timestamp: Date.now() } });
+    } else if (message.type === "SHOT_ATTEMPT") {
+      const room = rooms.get(message.payload?.matchId), entityId = room?.clients.get(socket), entity = room?.state.entities.find(value => value.id === entityId);
+      if (room && entity && Math.hypot(entity.position.x - room.state.ball.position.x, entity.position.z - room.state.ball.position.z) < 4.5) send(socket, { type:"SHOT_ACCEPTED", payload:{ tick:room.state.tick } });
     }
   });
   socket.on("close", () => {
@@ -488,7 +495,9 @@ setInterval(() => {
       room.state.ball.velocity = {x:0,z:0};
       room.state.ball.verticalVelocity = 0;
       room.goalCelebrationUntil = now + GOAL_CELEBRATION_MS;
-      broadcast(room, { type:"GOAL_SCORED", payload:{ team:goalTeam, score:{...room.score}, celebrationMs:GOAL_CELEBRATION_MS } });
+      const payload={ team:goalTeam, score:{...room.score}, celebrationMs:GOAL_CELEBRATION_MS };
+      broadcast(room, { type:"GOAL_VALIDATED", payload });
+      broadcast(room, { type:"GOAL_SCORED", payload });
     } else if (Math.abs(room.state.ball.position.z) > GOAL_LINE_Z + 2 || Math.abs(room.state.ball.position.x) > 26) {
       resetSimulation(room);
     }

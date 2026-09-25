@@ -44,3 +44,5 @@
 - C2 multiplayer/rendering update (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (641 modules; existing 3D bundle-size warning). Added Render-aware WebSocket resolution, 30 Hz client input publication with existing snapshot interpolation, 4v4 room lobby UI, and EffectComposer bloom/SAO/speed-lines presentation.
 
 - C3 tactical HUD/chat update (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (645 modules; existing 3D bundle-size warning). Added a 30 fps SVG tactical radar, room-broadcast WebSocket chat with five-second expiry, and CSS2D remote rider name tags synced from room slots.
+
+- C4 backfill/network authority update (2026-09-24): `node --check server/realtime-server.mjs` and final `npm.cmd run build` passed (646 modules; existing 3D bundle-size warning). Added deterministic 4v4 bot slot roles, 100 ms jitter-buffered Hermite snapshot smoothing, and server-validated shot/goal messaging.
