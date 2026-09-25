@@ -2,7 +2,7 @@ import { createInitialNetworkSnapshot, decompressSnapshot, type CompressedSnapsh
 import type { MatchScore, MatchTeam, PoloRiderEntity } from "../game/GameState";
 import { matchTelemetry } from "./Telemetry";
 
-export type MatchStartPayload = { matchId: string; assignedEntityId: PoloRiderEntity["id"]; reconnectToken: string | null; initialState: NetworkSnapshot; mode: "WEBSOCKET" | "BOT_BACKFILL" };
+export type MatchStartPayload = { matchId: string; assignedEntityId: PoloRiderEntity["id"]; reconnectToken: string | null; initialState: NetworkSnapshot; mode: "WEBSOCKET" | "BOT_BACKFILL"; playerNames?: Partial<Record<PoloRiderEntity["id"], string>> };
 export type PlayerControlChange = { entityId: PoloRiderEntity["id"]; playerName: string; state: "AI_BACKFILL" | "RECONNECTED"; reconnectDeadline?: number };
 export type GoalScored = { team: MatchTeam; score: MatchScore; celebrationMs: number };
 type QueueStatus = { players: number; capacity: number; roomId: string };
@@ -13,13 +13,15 @@ type ServerMessage =
   | { type: "GOAL_SCORED"; payload: GoalScored }
   | { type: "PLAYER_CONTROL_CHANGED"; payload: PlayerControlChange }
   | { type: "PONG"; payload: { clientTime: number; serverTime: number } }
+  | { type: "CHAT"; payload: { sender: string; message: string; timestamp: number } }
   | { type: "ERROR"; payload: { message: string } };
 type ClientMessage =
   | { type: "JOIN_QUEUE"; payload: { playerName: string; mode: "6V6" } }
   | { type: "RECONNECT"; payload: { matchId: string; reconnectToken: string } }
   | { type: "PING"; payload: { clientTime: number } }
   | { type: "RESET_MATCH"; payload: { matchId: string } }
-  | { type: "INPUT"; payload: { matchId: string; entityId: PoloRiderEntity["id"]; command: InputCommand } };
+  | { type: "INPUT"; payload: { matchId: string; entityId: PoloRiderEntity["id"]; command: InputCommand } }
+  | { type: "CHAT"; payload: { matchId: string; message: string } };
 type NetworkEvents = {
   status: { state: "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "OFFLINE"; detail?: string };
   queue: QueueStatus;
@@ -29,6 +31,7 @@ type NetworkEvents = {
   playerControl: PlayerControlChange;
   latency: { pingMs: number; serverTime: number };
   error: { message: string };
+  chat: { sender: string; message: string; timestamp: number };
 };
 
 export interface WebSocketTransport {
@@ -192,6 +195,7 @@ export class NetworkManager {
   requestMatchReset(): boolean {
     return this.activeMatch ? this.send({ type: "RESET_MATCH", payload: { matchId: this.activeMatch.matchId } }) : false;
   }
+  sendChat(message: string): boolean { const text = message.trim().slice(0, 160); return Boolean(text && this.activeMatch && this.send({ type:"CHAT", payload:{ matchId:this.activeMatch.matchId, message:text } })); }
 
   private send(message: ClientMessage): boolean {
     if (this.socket?.readyState !== 1) return false;
@@ -221,6 +225,7 @@ export class NetworkManager {
         matchTelemetry.recordPing(pingMs);
         this.emit("latency", { pingMs, serverTime: message.payload.serverTime });
       }
+      else if (message.type === "CHAT") this.emit("chat", message.payload);
       else if (message.type === "ERROR") this.emit("error", message.payload);
     } catch {
       this.emit("error", { message: "Malformed realtime server message" });
@@ -262,7 +267,7 @@ export class NetworkManager {
     this.socket = null;
     this.connectPromise = null;
     this.queued = false;
-    const match: MatchStartPayload = { matchId: `local-${Date.now()}`, assignedEntityId: "player", reconnectToken: null, initialState: createInitialNetworkSnapshot(Date.now()), mode: "BOT_BACKFILL" };
+    const match: MatchStartPayload = { matchId: `local-${Date.now()}`, assignedEntityId: "player", reconnectToken: null, initialState: createInitialNetworkSnapshot(Date.now()), mode: "BOT_BACKFILL", playerNames:{player:"POLOPLAYER1"} };
     this.activeMatch = match;
     this.resumableMatch = null;
     matchTelemetry.startMatch(match.matchId);

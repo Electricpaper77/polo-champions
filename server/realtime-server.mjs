@@ -206,7 +206,7 @@ function startRoom() {
       disconnectedAt: null,
       reconnectDeadline: null,
     });
-    send(client.socket, { type: "MATCH_START", payload: { matchId: id, assignedEntityId, reconnectToken, initialState: compress(state), mode: "WEBSOCKET" } });
+    send(client.socket, { type: "MATCH_START", payload: { matchId: id, assignedEntityId, reconnectToken, initialState: compress(state), mode: "WEBSOCKET", playerNames: Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.playerName])) } });
   });
   rooms.set(id, room);
   queueStatus();
@@ -386,7 +386,7 @@ wss.on("connection", socket => {
       const room = rooms.get(message.payload?.matchId);
       const reclaimed = room && reclaimPlayerSlot(room, socket, message.payload?.reconnectToken);
       if (!room || !reclaimed) return send(socket, { type: "ERROR", payload: { message: "Reconnect window expired or token invalid" } });
-      send(socket, { type: "MATCH_START", payload: { matchId: room.id, assignedEntityId: reclaimed.entityId, reconnectToken: reclaimed.reconnectToken, initialState: compress(room.state, room.acks.get(reclaimed.entityId) ?? 0), mode: "WEBSOCKET" } });
+      send(socket, { type: "MATCH_START", payload: { matchId: room.id, assignedEntityId: reclaimed.entityId, reconnectToken: reclaimed.reconnectToken, initialState: compress(room.state, room.acks.get(reclaimed.entityId) ?? 0), mode: "WEBSOCKET", playerNames: Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.playerName])) } });
       broadcast(room, { type: "PLAYER_CONTROL_CHANGED", payload: reclaimed });
     } else if (message.type === "INPUT") {
       const room = rooms.get(message.payload?.matchId);
@@ -401,6 +401,9 @@ wss.on("connection", socket => {
       if(room?.clients.has(socket))resetSimulation(room,true);
     } else if (message.type === "PING") {
       send(socket, { type: "PONG", payload: { clientTime: Number(message.payload?.clientTime), serverTime: Date.now() } });
+    } else if (message.type === "CHAT") {
+      const room = rooms.get(message.payload?.matchId), entityId = room?.clients.get(socket), slot = entityId && room?.slots.get(entityId), text = String(message.payload?.message ?? "").trim().slice(0, 160);
+      if (room && slot && text) broadcast(room, { type: "CHAT", payload: { sender: slot.playerName, message: text, timestamp: Date.now() } });
     }
   });
   socket.on("close", () => {
