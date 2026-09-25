@@ -289,6 +289,7 @@ function RealtimeBots({ ball, input }: { ball: React.RefObject<RapierRigidBody |
   }, []);
 
   useFrame((state, delta) => {
+    if (window.POLO_TUTORIAL_ACTIVE) return;
     const store = useMatch.getState();
     const online = networkManager.getActiveMatch()?.mode === "WEBSOCKET";
     if (online) {

@@ -2,9 +2,9 @@ export type CosmeticCoat = "CHESTNUT" | "BLACK" | "DAPPLE_GREY";
 export type CosmeticMallet = "BAMBOO" | "CARBON_FIBER";
 export const XP_PER_LEVEL = 1000;
 export type MatchRewards = { xp:number; coins:number; goalCoins:number; won:boolean };
-export type PlayerProfile = { matchesPlayed:number; goalsScored:number; wins:number; poloCoins:number; xp:number; level:number; eloRating:number; unlockedCoats:CosmeticCoat[]; unlockedMallets:CosmeticMallet[]; equippedCoat:CosmeticCoat; equippedMallet:CosmeticMallet };
+export type PlayerProfile = { matchesPlayed:number; goalsScored:number; wins:number; poloCoins:number; xp:number; level:number; hasCompletedTutorial:boolean; eloRating:number; unlockedCoats:CosmeticCoat[]; unlockedMallets:CosmeticMallet[]; equippedCoat:CosmeticCoat; equippedMallet:CosmeticMallet };
 const key="polo-champions-player-profile";
-const initial:PlayerProfile={matchesPlayed:0,goalsScored:0,wins:0,poloCoins:0,xp:0,level:1,eloRating:1200,unlockedCoats:["CHESTNUT"],unlockedMallets:["BAMBOO"],equippedCoat:"CHESTNUT",equippedMallet:"BAMBOO"};
+const initial:PlayerProfile={matchesPlayed:0,goalsScored:0,wins:0,poloCoins:0,xp:0,level:1,hasCompletedTutorial:false,eloRating:1200,unlockedCoats:["CHESTNUT"],unlockedMallets:["BAMBOO"],equippedCoat:"CHESTNUT",equippedMallet:"BAMBOO"};
 let memory:PlayerProfile={...initial};
 const read=()=>{try{const value=typeof localStorage==="undefined"?null:localStorage.getItem(key);return value?{...initial,...JSON.parse(value)} as PlayerProfile:memory}catch{return memory}};
 const write=(profile:PlayerProfile)=>{memory=profile;try{localStorage?.setItem(key,JSON.stringify(profile))}catch{/* local in-memory fallback */}return profile};
@@ -12,3 +12,9 @@ const coatPrice:Record<CosmeticCoat,number>={CHESTNUT:0,BLACK:100,DAPPLE_GREY:30
 const malletPrice:Record<CosmeticMallet,number>={BAMBOO:0,CARBON_FIBER:200};
 export const PlayerProfileStore={get:read,winRate:()=>{const profile=read();return profile.matchesPlayed?Math.round(profile.wins/profile.matchesPlayed*100):0},setElo:(eloRating:number)=>write({...read(),eloRating:Math.round(eloRating)}),recordMatch:(won:boolean,goals:number)=>{const profile=read(),goalCoins=Math.max(0,goals)*10,coins=(won?50:10)+goalCoins,xp=(won?100:25)+Math.max(0,goals)*20,totalXp=profile.xp+xp,levels=Math.floor(totalXp/XP_PER_LEVEL),next={...profile,matchesPlayed:profile.matchesPlayed+1,wins:profile.wins+(won?1:0),goalsScored:profile.goalsScored+goals,poloCoins:profile.poloCoins+coins,xp:totalXp%XP_PER_LEVEL,level:profile.level+levels};return{profile:write(next),rewards:{xp,coins,goalCoins,won} as MatchRewards}},unlockCoat:(coat:CosmeticCoat)=>{const profile=read(),price=coatPrice[coat];if(profile.unlockedCoats.includes(coat))return{ok:true,profile};if(profile.poloCoins<price)return{ok:false,profile};return{ok:true,profile:write({...profile,poloCoins:profile.poloCoins-price,unlockedCoats:[...profile.unlockedCoats,coat]})}},unlockMallet:(mallet:CosmeticMallet)=>{const profile=read(),price=malletPrice[mallet];if(profile.unlockedMallets.includes(mallet))return{ok:true,profile};if(profile.poloCoins<price)return{ok:false,profile};return{ok:true,profile:write({...profile,poloCoins:profile.poloCoins-price,unlockedMallets:[...profile.unlockedMallets,mallet]})}},equip:(values:Partial<Pick<PlayerProfile,"equippedCoat"|"equippedMallet">>)=>write({...read(),...values})};
 export const PLAYER_COSMETIC_COLORS={CHESTNUT:"#9a4f2b",BLACK:"#151514",DAPPLE_GREY:"#aeb4b4",BAMBOO:"#c89b54",CARBON_FIBER:"#252a31"} as const;
+
+export function completeTutorial(profile = read()) {
+  if (profile.hasCompletedTutorial) return { profile, awarded: false };
+  const totalXp = profile.xp + 500, levels = Math.floor(totalXp / XP_PER_LEVEL);
+  return { profile: write({ ...profile, hasCompletedTutorial:true, poloCoins:profile.poloCoins + 500, xp:totalXp % XP_PER_LEVEL, level:profile.level + levels }), awarded: true };
+}

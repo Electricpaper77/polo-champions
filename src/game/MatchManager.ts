@@ -8,6 +8,7 @@ export type CommentaryAnnouncement = "GREAT SAVE!" | "GOAL!" | "TURNOVER";
 export function getCommentaryAnnouncement(event: "goal" | "save" | "turnover"): CommentaryAnnouncement { return event === "goal" ? "GOAL!" : event === "save" ? "GREAT SAVE!" : "TURNOVER"; }
 export function crowdPressureForBallZ(z: number) { return Math.max(0, Math.min(1, (Math.abs(z) - 27) / 15)); }
 export function calculateMatchRewards(won: boolean, goals: number): MatchRewards { const goalCoins=Math.max(0,goals)*10; return { won, goalCoins, coins:(won?50:10)+goalCoins, xp:(won?100:25)+Math.max(0,goals)*20 }; }
+export const TUTORIAL_WELCOME_BONUS = { xp:500, coins:500 } as const;
 
 /** Returns a fixed-size roster whose unclaimed seats are deterministic tactical bots. */
 export function backfillMatchRoster(matchType: MatchType, humanIds: ReadonlySet<PoloRiderEntity["id"]>): BackfillSlot[] {

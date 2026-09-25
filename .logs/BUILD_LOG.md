@@ -1,5 +1,7 @@
 # Build Log
 
+- Interactive Training Grounds onboarding update (2026-09-24): `npm.cmd run build` completed with refreshed TypeScript/Vite production assets.
+
 - Player progression, match rewards, and store purchase update (2026-09-24): `npm.cmd run build` passed (664 modules transformed; TypeScript and Vite clean).
 
 - Spatial audio, crowd atmosphere, and HUD polish update (2026-09-24): `npm.cmd run build` completed with refreshed TypeScript/Vite production assets.
