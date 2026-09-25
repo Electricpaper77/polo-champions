@@ -15,6 +15,10 @@ type PoloEntityProps = {
   motion?: React.RefObject<{ turn: number; braking: boolean }>;
 };
 
+function getReadableCoat(color: string) {
+  return color.toLowerCase() === "#171716" ? "#3a2a20" : color;
+}
+
 function HorseBody({ coat, wrapColor, saddlePad }: { coat: string; wrapColor: string; saddlePad: string }) {
   const legXs = [-0.34, 0.34];
   const legZs = [-0.62, 0.54];
@@ -132,7 +136,7 @@ export function PoloEntity({ entity, action = "NONE", motion }: PoloEntityProps)
   const useLowLod = useAvatarLod(root);
   const avatar = entity.id === "player" ? getPlayerAvatarCosmetics() : null;
   const presentation = TEAM_PRESENTATION[entity.team];
-  const coat = avatar?.coat ?? coatColors[entity.coat];
+  const coat = getReadableCoat(avatar?.coat ?? coatColors[entity.coat]);
   const malletColor = avatar?.mallet ?? SHOP_ITEMS.find(item => item.name === entity.mallet)?.color ?? "#d5b66c";
   const jerseyNumber = entity.id === "player" ? "3" : entity.id.split("_")[1] ?? "";
 

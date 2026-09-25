@@ -1,3 +1,4 @@
+- Camera readability hotfix (2026-09-25): npm.cmd run build passed with TypeScript and Vite (665 modules). Pulled the follow camera farther back/upfield and remapped black horse coats to readable dark bay in gameplay so the player view is not blocked by a near-field silhouette.
 - Gameplay visual hotfix (2026-09-25): npm.cmd run build passed with TypeScript and Vite (665 modules). Replaced active GLTF horse/rider gameplay rendering with deterministic procedural meshes to remove black oversized avatar blobs on the deployed WebGL scene.
 # Build Log
 
