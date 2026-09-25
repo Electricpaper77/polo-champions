@@ -16,7 +16,25 @@ const gltfLoader = new GLTFLoader();
 THREE.Cache.enabled = true;
 
 async function loadAsset(url: string): Promise<void> {
-  await gltfLoader.loadAsync(url);
+  const model = await gltfLoader.loadAsync(url);
+  preparePbrModel(model);
+}
+
+/** Normalizes authored GLTF PBR values so meshes do not render as black reflections. */
+export function preparePbrModel(model: GLTF): GLTF {
+  model.scene.traverse(child => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.castShadow = true;
+    child.receiveShadow = true;
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    materials.forEach(material => {
+      if (!(material instanceof THREE.MeshStandardMaterial)) return;
+      material.metalness = .1;
+      material.roughness = .8;
+      material.needsUpdate = true;
+    });
+  });
+  return model;
 }
 
 export function preloadAsset(url: string, loader: AssetLoader = loadAsset): Promise<void> {
@@ -49,9 +67,9 @@ export function clearAssetCacheForTests(): void {
 }
 
 export function useHorseModel(): GLTF {
-  return useGLTF(GAME_MODEL_URLS.horse) as unknown as GLTF;
+  return preparePbrModel(useGLTF(GAME_MODEL_URLS.horse) as unknown as GLTF);
 }
 
 export function useRiderModel(): GLTF {
-  return useGLTF(GAME_MODEL_URLS.rider) as unknown as GLTF;
+  return preparePbrModel(useGLTF(GAME_MODEL_URLS.rider) as unknown as GLTF);
 }
