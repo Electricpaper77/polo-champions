@@ -1,6 +1,6 @@
 import { Text } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { coatColors, SHOP_ITEMS } from "../services/Economy";
 import type { PoloRiderEntity } from "./GameState";
@@ -141,6 +141,12 @@ export function PoloEntity({ entity, action = "NONE", motion }: PoloEntityProps)
   const coat = getReadableCoat(avatar?.coat ?? coatColors[entity.coat]);
   const malletColor = avatar?.mallet ?? SHOP_ITEMS.find(item => item.name === entity.mallet)?.color ?? "#d5b66c";
   const jerseyNumber = entity.id === "player" ? "3" : entity.id.split("_")[1] ?? "";
+
+  useEffect(() => {
+    root.current?.traverse(child => {
+      if (child instanceof THREE.Mesh) child.castShadow = false;
+    });
+  }, [useLowLod]);
 
   useFrame((_, delta) => {
     const speed = Math.hypot(entity.velocity.x, entity.velocity.y);
