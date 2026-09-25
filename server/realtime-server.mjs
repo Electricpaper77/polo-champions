@@ -200,13 +200,14 @@ function startRoom() {
     room.slots.set(assignedEntityId, {
       entityId: assignedEntityId,
       playerName: client.name,
+      cosmetics: client.cosmetics ?? { coat:"CHESTNUT", mallet:"BAMBOO" },
       reconnectToken,
       control: "HUMAN",
       socket: client.socket,
       disconnectedAt: null,
       reconnectDeadline: null,
     });
-    send(client.socket, { type: "MATCH_START", payload: { matchId: id, assignedEntityId, reconnectToken, initialState: compress(state), mode: "WEBSOCKET", playerNames: Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.playerName])) } });
+    send(client.socket, { type: "MATCH_START", payload: { matchId: id, assignedEntityId, reconnectToken, initialState: compress(state), mode: "WEBSOCKET", playerNames: Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.playerName])), playerCosmetics:Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.cosmetics ?? {coat:"CHESTNUT",mallet:"BAMBOO"}])) } });
   });
   for (const entity of state.entities) if (!room.slots.has(entity.id)) {
     const role = ["ATTACKER", "MIDFIELDER", "DEFENDER", "SWEEPER"][ENTITY_IDS.filter(id => entityTeam({id}) === entityTeam(entity)).indexOf(entity.id)] ?? "SWEEPER";
@@ -382,7 +383,7 @@ wss.on("connection", socket => {
     let message;
     try { message = JSON.parse(String(data)); } catch { return send(socket, { type: "ERROR", payload: { message: "Malformed message" } }); }
     if (message.type === "JOIN_QUEUE") {
-      if (!queue.some(item => item.socket === socket)) queue.push({ socket, name: String(message.payload?.playerName ?? "PLAYER") });
+      if (!queue.some(item => item.socket === socket)) queue.push({ socket, name: String(message.payload?.playerName ?? "PLAYER"), cosmetics:message.payload?.cosmetics });
       queueStatus();
       if (queue.length >= CAPACITY) startRoom();
       else setTimeout(() => { if (queue.some(item => item.socket === socket)) startRoom(); }, 3000);

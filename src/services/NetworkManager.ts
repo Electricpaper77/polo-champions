@@ -1,8 +1,9 @@
 import { createInitialNetworkSnapshot, decompressSnapshot, type CompressedSnapshot, type InputCommand, type NetworkSnapshot } from "../game/NetworkSync";
 import type { MatchScore, MatchTeam, PoloRiderEntity } from "../game/GameState";
 import { matchTelemetry } from "./Telemetry";
+import { PlayerProfileStore } from "./PlayerProfile";
 
-export type MatchStartPayload = { matchId: string; assignedEntityId: PoloRiderEntity["id"]; reconnectToken: string | null; initialState: NetworkSnapshot; mode: "WEBSOCKET" | "BOT_BACKFILL"; playerNames?: Partial<Record<PoloRiderEntity["id"], string>> };
+export type MatchStartPayload = { matchId: string; assignedEntityId: PoloRiderEntity["id"]; reconnectToken: string | null; initialState: NetworkSnapshot; mode: "WEBSOCKET" | "BOT_BACKFILL"; playerNames?: Partial<Record<PoloRiderEntity["id"], string>>; playerCosmetics?: Partial<Record<PoloRiderEntity["id"], { coat:string; mallet:string }>> };
 export type PlayerControlChange = { entityId: PoloRiderEntity["id"]; playerName: string; state: "AI_BACKFILL" | "RECONNECTED"; reconnectDeadline?: number };
 export type GoalScored = { team: MatchTeam; score: MatchScore; celebrationMs: number };
 type QueueStatus = { players: number; capacity: number; roomId: string };
@@ -16,7 +17,7 @@ type ServerMessage =
   | { type: "CHAT"; payload: { sender: string; message: string; timestamp: number } }
   | { type: "ERROR"; payload: { message: string } };
 type ClientMessage =
-  | { type: "JOIN_QUEUE"; payload: { playerName: string; mode: "6V6" } }
+  | { type: "JOIN_QUEUE"; payload: { playerName: string; mode: "6V6"; cosmetics?: { coat:string; mallet:string } } }
   | { type: "RECONNECT"; payload: { matchId: string; reconnectToken: string } }
   | { type: "PING"; payload: { clientTime: number } }
   | { type: "RESET_MATCH"; payload: { matchId: string } }
@@ -179,7 +180,8 @@ export class NetworkManager {
   requestRoom(playerName: string): boolean {
     this.lastPlayerName = playerName;
     if (this.queued || this.activeMatch) return false;
-    const sent = this.send({ type: "JOIN_QUEUE", payload: { playerName, mode: "6V6" } });
+    const profile=PlayerProfileStore.get();
+    const sent = this.send({ type: "JOIN_QUEUE", payload: { playerName, mode: "6V6", cosmetics:{coat:profile.equippedCoat,mallet:profile.equippedMallet} } });
     this.queued = sent;
     return sent;
   }

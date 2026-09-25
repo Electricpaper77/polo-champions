@@ -285,10 +285,13 @@ function RealtimeBots({ ball, input }: { ball: React.RefObject<RapierRigidBody |
       const snapshot = buffer.current.sample(Date.now() - NETWORK_JITTER_BUFFER_MS);
       if (!snapshot) return;
       const next = cloneEntities(store.entities);
+      const networkCosmetics = networkManager.getActiveMatch()?.playerCosmetics;
       for (const remote of snapshot.entities) {
         if (remote.id === assignedId) continue;
         const entity = next[remote.id];
-        next[remote.id] = { ...entity, position: { x: remote.position.x, y: remote.position.z }, velocity: { x: remote.velocity.x, y: remote.velocity.z }, heading: remote.heading };
+        const cosmetics=networkCosmetics?.[remote.id];
+        const coat=cosmetics?.coat === "DAPPLE_GREY" ? "Gray" : cosmetics?.coat === "BLACK" ? "Black" : cosmetics?.coat === "CHESTNUT" ? "Chestnut" : entity.coat;
+        next[remote.id] = { ...entity, coat, mallet:cosmetics?.mallet ?? entity.mallet, position: { x: remote.position.x, y: remote.position.z }, velocity: { x: remote.velocity.x, y: remote.velocity.z }, heading: remote.heading };
       }
       const ballBody = ball.current;
       if (ballBody) {

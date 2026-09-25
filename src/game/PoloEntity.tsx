@@ -8,6 +8,7 @@ import type { PoloRiderEntity } from "./GameState";
 import { AnimationController, type EntityActionState } from "./AnimationController";
 import { useHorseModel, useRiderModel } from "./AssetManager";
 import { getGait, getRiderPose, TEAM_PRESENTATION } from "./HorseControls";
+import { getPlayerAvatarCosmetics } from "./PlayerAvatar";
 
 function configurePbr(root: THREE.Object3D, tint: string, glossy = false): void {
   root.traverse(child => {
@@ -32,12 +33,13 @@ export function PoloEntity({ entity, action = "NONE", motion }: { entity: PoloRi
   const root = useRef<THREE.Group>(null), riderPivot = useRef<THREE.Group>(null), mallet = useRef<THREE.Group>(null);
   const controller = useRef<AnimationController | null>(null);
   const clips = useMemo(() => [...horseAsset.animations, ...riderAsset.animations], [horseAsset.animations, riderAsset.animations]);
-  const malletColor = SHOP_ITEMS.find(item => item.name === entity.mallet)?.color ?? "#d5b66c";
+  const avatar = entity.id === "player" ? getPlayerAvatarCosmetics() : null;
+  const malletColor = avatar?.mallet ?? SHOP_ITEMS.find(item => item.name === entity.mallet)?.color ?? "#d5b66c";
 
   useEffect(() => {
-    configurePbr(horse, coatColors[entity.coat]);
+    configurePbr(horse, avatar?.coat ?? coatColors[entity.coat]);
     configurePbr(rider, "#f4f1e7", true);
-  }, [horse, rider, entity.coat, entity.kitColor]);
+  }, [horse, rider, entity.coat, entity.kitColor, avatar?.coat]);
   useEffect(() => {
     if (!root.current) return;
     controller.current = new AnimationController(root.current, clips);
