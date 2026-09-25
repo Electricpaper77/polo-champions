@@ -1,8 +1,8 @@
 import { GALLOP_SPEED } from "./HorseControls";
 
-export const MIN_CAMERA_DISTANCE = 9;
-export const MAX_CAMERA_DISTANCE = 28;
-export const DEFAULT_CAMERA_DISTANCE = 18;
+export const MIN_CAMERA_DISTANCE = 14;
+export const MAX_CAMERA_DISTANCE = 34;
+export const DEFAULT_CAMERA_DISTANCE = 26;
 export const CAMERA_WHEEL_STEP = 1.5;
 export type CameraMode = "FOLLOW" | "BROADCAST" | "GOAL_CAM" | "FREE_FLY";
 export const CAMERA_MODES: CameraMode[] = ["FOLLOW", "BROADCAST", "GOAL_CAM"];
@@ -29,8 +29,8 @@ export function getAdvancedCameraOffset(yaw:number, speed:number, steer:number, 
   const side = steer * (0.5 + speedRatio * 1.1);
   return {
     x:-Math.sin(cameraYaw) * distance + Math.cos(cameraYaw) * side,
-    y:8.8 + speedRatio * 2.2,
+    y:15 + speedRatio * 3,
     z:-Math.cos(cameraYaw) * distance - Math.sin(cameraYaw) * side,
-    lookAhead:(lookBack ? -1 : 1) * (5 + speedRatio * 5),
+    lookAhead:(lookBack ? -1 : 1) * (18 + speedRatio * 8),
   };
 }
