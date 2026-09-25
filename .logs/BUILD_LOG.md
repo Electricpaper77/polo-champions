@@ -1,5 +1,7 @@
 # Build Log
 
+- Core gameplay physics and camera tuning update (2026-09-24): `npm.cmd run build` completed with TypeScript/Vite output generated successfully.
+
 - Dynamic multiplayer scaling update (2026-09-24): `node --check server/realtime-server.mjs` and `npm.cmd run build` passed (TypeScript, Vite, and PWA precache completed).
 
 - Hotfix 1 timer, scene lighting, and locker preview update (2026-09-24): `npm.cmd run build` passed (663 modules transformed; PWA precache generated successfully).

@@ -17,7 +17,8 @@ import { NETWORK_JITTER_BUFFER_MS, SnapshotBuffer, reconcileLocalEntity, type In
 import { networkManager, type PlayerControlChange } from "../services/NetworkManager";
 import { matchTelemetry } from "../services/Telemetry";
 import type { PoloRiderEntity } from "./GameState";
-import { DEFAULT_CAMERA_DISTANCE, getAdvancedCameraOffset, getResponsiveCameraFov, nextCameraMode, smoothCameraDistance, type CameraMode } from "./Camera";
+import { DEFAULT_CAMERA_DISTANCE, getAdvancedCameraOffset, nextCameraMode, smoothCameraDistance, type CameraMode } from "./Camera";
+import { getTrackingFov, trackingLerpAlpha } from "./GameCamera";
 import { getEffectiveSwingCharge, getPlayerCombos } from "./PlayerState";
 import { AudioEngine } from "../services/AudioEngine";
 import { AudioManager } from "./AudioManager";
@@ -249,13 +250,13 @@ function RealtimeHorse({ ball, input, cameraMode }: { ball: React.RefObject<Rapi
         freeFlyPosition.current = null;
         const desired = cameraMode === "BROADCAST" ? new THREE.Vector3(23, 4.4, sidelineLook.z + 7) : cameraMode === "GOAL_CAM" ? new THREE.Vector3(0, 16, goalSide * 38) : followDesired;
         const look = cameraMode === "BROADCAST" ? sidelineLook : cameraMode === "GOAL_CAM" ? goalLook : followLook;
-        state.camera.position.lerp(desired, 1 - Math.exp(-delta * (5 + Math.min(Math.abs(speed.current) / MAX_GALLOP_SPEED, 1) * 2)));
+        state.camera.position.lerp(desired, trackingLerpAlpha(delta, speed.current));
         state.camera.lookAt(look.x, look.y + 1, look.z);
       }
       AudioManager.setListenerPosition(state.camera.position);
       AudioManager.attachThreeListener(state.camera);
-      const responsiveFov=getResponsiveCameraFov(state.size.width/state.size.height), perspectiveCamera=state.camera as THREE.PerspectiveCamera;
-      if (perspectiveCamera.fov !== responsiveFov) { perspectiveCamera.fov=responsiveFov; perspectiveCamera.updateProjectionMatrix(); }
+      const trackingFov=getTrackingFov(state.size.width/state.size.height, speed.current), perspectiveCamera=state.camera as THREE.PerspectiveCamera;
+      if (Math.abs(perspectiveCamera.fov - trackingFov) > .01) { perspectiveCamera.fov=THREE.MathUtils.damp(perspectiveCamera.fov, trackingFov, 8, delta); perspectiveCamera.updateProjectionMatrix(); }
 
       if (!frozenAtKickoff) latestCommand.current = { sequence: ++sequence.current, clientTime: Date.now(), input: { throttle: currentInput.throttle, steer: currentInput.steer, gallop: canGallop, brake: currentInput.brake, strike: currentInput.strike, power: combos.powerStrike, backhand: currentInput.backhand, aimX: currentInput.aimX, aimY: currentInput.aimY, rideOff:currentInput.rideOff } };
       telemetryClock.current += delta;

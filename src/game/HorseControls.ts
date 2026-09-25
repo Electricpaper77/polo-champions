@@ -59,7 +59,8 @@ export function exponentialAlpha(dt: number, tau: number) {
 }
 
 export function steeringRate(speed: number, agility = 1) {
-  return TURN_BASE_RATE / (1 + .05 * Math.abs(speed)) * agility;
+  const speedRatio = clamp(Math.abs(speed) / MAX_GALLOP_SPEED, 0, 1);
+  return TURN_BASE_RATE * (1 + (1 - speedRatio) * .3) / (1 + .055 * Math.abs(speed)) * agility;
 }
 
 export function getTargetSpeed({ throttle, gallop, brake }: HorseMotionInput, archetype: HorseArchetype = "ALL_ROUNDER") {

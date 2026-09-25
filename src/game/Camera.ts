@@ -8,6 +8,8 @@ export type CameraMode = "FOLLOW" | "BROADCAST" | "GOAL_CAM" | "FREE_FLY";
 export const CAMERA_MODES: CameraMode[] = ["FOLLOW", "BROADCAST", "GOAL_CAM"];
 export function nextCameraMode(current: CameraMode): CameraMode { return CAMERA_MODES[(CAMERA_MODES.indexOf(current) + 1) % CAMERA_MODES.length]; }
 export function getResponsiveCameraFov(aspect:number){return aspect < .75 ? 68 : aspect < 1 ? 61 : 54;}
+/** Galloping opens the lens a little, preserving peripheral awareness without a hard camera jump. */
+export function getDynamicCameraFov(aspect:number, speed:number){return getResponsiveCameraFov(aspect)+Math.min(Math.abs(speed)/GALLOP_SPEED,1)*6;}
 
 const clamp = (value:number, minimum:number, maximum:number) => Math.max(minimum, Math.min(maximum, value));
 
