@@ -60,3 +60,5 @@
 - C9 replay/spectator update (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (657 modules; existing 3D bundle-size warning). Added 10 Hz in-memory state recording, replay interpolation controls, and a detached spectator fly camera.
 
 - C10 audio/settings update (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (658 modules; existing 3D bundle-size warning). Added a Three.js camera listener bridge, global master-volume/mute controls, UI audio cues, and retained positional horse/ball sound routing with PWA GLB/MP3 cache patterns.
+
+- D1 production telemetry/safety update (2026-09-24): `npm.cmd run build` passed TypeScript and Vite module transformation (660 modules). Added anonymous analytics hooks, a root crash boundary, and a low-FPS watchdog component.

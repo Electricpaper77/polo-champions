@@ -1,0 +1,2 @@
+import { Component, type ErrorInfo, type ReactNode } from "react";
+export class ErrorBoundary extends Component<{children:ReactNode},{failed:boolean}>{state={failed:false};static getDerivedStateFromError(){return{failed:true}}componentDidCatch(error:Error,info:ErrorInfo){console.error("Polo Champions crash",error,info)}render(){return this.state.failed?<main className="pause" role="alert">THE HORSE THREW A SHOE!<br/><small>(Game Crashed)</small><button onClick={()=>window.location.reload()}>RELOAD GAME</button></main>:this.props.children}}
