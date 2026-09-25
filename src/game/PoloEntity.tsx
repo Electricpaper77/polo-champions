@@ -16,14 +16,9 @@ function configurePbr(root: THREE.Object3D, tint: string, glossy = false): void 
     if (!(child instanceof THREE.Mesh)) return;
     child.castShadow = true;
     child.receiveShadow = true;
-    const source = Array.isArray(child.material) ? child.material[0] : child.material;
-    if (!(source instanceof THREE.MeshStandardMaterial)) return;
-    const material = source.clone();
-    material.color.lerp(new THREE.Color(tint), glossy ? 0.58 : 0.34);
-    material.roughness = glossy ? 0.22 : 0.68;
-    material.metalness = glossy ? 0.2 : 0.03;
-    if (material.normalMap) material.normalScale.set(glossy ? 0.22 : 0.62, glossy ? 0.22 : 0.62);
-    child.material = material;
+    // Authored GLTF base-color maps are near-black in the deployed asset set.
+    // Use a deterministic field-ready material for readable horses and riders.
+    child.material = new THREE.MeshLambertMaterial({ color: tint, emissive: glossy ? new THREE.Color(tint).multiplyScalar(.06) : new THREE.Color(tint).multiplyScalar(.025) });
   });
 }
 
