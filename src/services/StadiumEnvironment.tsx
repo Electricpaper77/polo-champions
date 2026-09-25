@@ -15,8 +15,9 @@ function Crowd() {
 /** Lightweight stadium dressing, kept separate from pitch physics and match logic. */
 export function StadiumEnvironment() {
   return <group name="stadium-environment">
-    <mesh name="stadium-turf" rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[72, 120]} /><meshStandardMaterial color="#347b43" roughness={.9} /></mesh>
+    <mesh name="stadium-turf" rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[72, 120]} /><meshBasicMaterial color="#3fa45a" /></mesh>
     {[-40, -20, 0, 20, 40].map(z => <mesh key={z} position={[0, .012, z]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[72, .16]} /><meshBasicMaterial color="#f3f0df" /></mesh>)}
+    {[-24, -12, 0, 12, 24].map(x => <mesh key={`x-${x}`} position={[x, .014, 0]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[.14, 120]} /><meshBasicMaterial color={x === 0 ? "#f8f1d7" : "#b9ddad"} transparent opacity={x === 0 ? .82 : .55} /></mesh>)}
     {[-34, 34].map(x => <group key={x} position={[x, .68, 0]}>
       <mesh castShadow><boxGeometry args={[.16, 1.1, 116]} /><meshStandardMaterial color="#f4eedb" roughness={.55} /></mesh>
       {Array.from({ length: 14 }, (_, index) => <group key={index} position={[x > 0 ? -.18 : .18, .02, -52 + index * 8]} rotation={[0, x > 0 ? -Math.PI / 2 : Math.PI / 2, 0]}>
