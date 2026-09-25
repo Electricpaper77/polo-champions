@@ -38,3 +38,5 @@
 - B12 production readiness update (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (626 modules; existing 3D bundle-size warning); focused `npx.cmd playwright test e2e/match-flow.spec.ts --workers=1` passed. Added the `/api/health` JSON endpoint, an E2E match-flow suite, adaptive render pixel density for particle pressure, and presentation-state low-pass crowd audio.
 
 - Developer testing controls (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (627 modules; existing 3D bundle-size warning). Added G god-mode movement, Space ball magnet possession, F10 free-fly camera navigation, and T full-time test trigger.
+
+- C1 spatial audio engine (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (628 modules; existing 3D bundle-size warning). Added autoplay-safe asset-ready WebAudio preloading with spatial ball/horse emitters, velocity-scaled gallop, mallet and impact triggers, whistle/cheer events, and stadium murmur fallback.
