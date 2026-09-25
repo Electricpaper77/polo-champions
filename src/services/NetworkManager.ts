@@ -54,7 +54,10 @@ export function reconnectDelay(attempt: number, baseDelayMs = 500, maxDelayMs = 
 
 function defaultUrl(): string {
   const configured = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_WEBSOCKET_URL;
-  return resolveWebSocketUrl(configured);
+  if (configured?.trim()) return resolveWebSocketUrl(configured);
+  return typeof window !== "undefined" && !["localhost", "127.0.0.1"].includes(window.location.hostname)
+    ? "wss://polo-champions.onrender.com"
+    : "ws://localhost:8080";
 }
 
 function defaultFactory(url: string): WebSocketTransport {
@@ -74,6 +77,7 @@ export class NetworkManager {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private latencyTimer: ReturnType<typeof setInterval> | null = null;
   private currentPingMs = 0;
+  private lastInputSentAt = 0;
   private lastPlayerName: string | null = null;
   private readonly baseDelayMs: number;
   private readonly maxDelayMs: number;
@@ -178,6 +182,10 @@ export class NetworkManager {
 
   sendInput(command: InputCommand): boolean {
     if (!this.activeMatch) return false;
+    const now = performance.now();
+    // Transform/input packets deliberately remain at 30 Hz; snapshots handle interpolation.
+    if (now - this.lastInputSentAt < 1000 / 30) return false;
+    this.lastInputSentAt = now;
     return this.send({ type: "INPUT", payload: { matchId: this.activeMatch.matchId, entityId: this.activeMatch.assignedEntityId, command: { ...command, reportedPingMs: this.currentPingMs } } });
   }
 
