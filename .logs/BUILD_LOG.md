@@ -56,3 +56,5 @@
 - PWA Workbox size-limit fix (2026-09-24): `npm.cmd run build` passed. Workbox generated `dist/sw.js` and precached 12 entries (4.53 MiB), including the Rapier physics bundle, with `maximumFileSizeToCacheInBytes` raised to 5 MiB.
 
 - C8 Elo/leaderboard update (2026-09-24): `node --check server/realtime-server.mjs` and `npm.cmd run build` passed (654 modules; existing 3D bundle-size warning). Added local 1200-baseline Elo calculation, Top-50 server leaderboard broadcasts, and the main-menu rankings view.
+
+- C9 replay/spectator update (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (657 modules; existing 3D bundle-size warning). Added 10 Hz in-memory state recording, replay interpolation controls, and a detached spectator fly camera.
