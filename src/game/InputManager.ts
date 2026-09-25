@@ -126,6 +126,9 @@ export function useInput(disabled = false) {
   const aim = useRef<AimDirection>({ x:0, y:0 });
   const cameraZoom = useRef(DEFAULT_CAMERA_DISTANCE);
   const publishedState = useRef("");
+  const touch = useRef({ steer:0, throttle:0, strike:false, gallop:false });
+
+  useEffect(() => { const movement=(event:Event)=>{const detail=(event as CustomEvent<{steer:number;throttle:number}>).detail;touch.current={...touch.current,...detail};};const actions=(event:Event)=>{touch.current={...touch.current,...((event as CustomEvent<Partial<typeof touch.current>>).detail)};};window.addEventListener("polo-touch-input",movement);window.addEventListener("polo-touch-actions",actions);return()=>{window.removeEventListener("polo-touch-input",movement);window.removeEventListener("polo-touch-actions",actions)};},[]);
 
   useEffect(() => {
     if (!disabled) return;
@@ -206,6 +209,10 @@ export function useInput(disabled = false) {
         next.strike = next.strike || Boolean(gamepad.buttons[0]?.pressed);
         next.backhand = Boolean(gamepad.buttons[1]?.pressed);
       }
+      next.throttle = Math.abs(touch.current.throttle) > .01 ? touch.current.throttle : next.throttle;
+      next.steer = Math.abs(touch.current.steer) > .01 ? touch.current.steer : next.steer;
+      next.strike = next.strike || touch.current.strike;
+      next.gallop = next.gallop || touch.current.gallop;
       input.current = disabled ? createInputSnapshot(new Set(), new Set(), aim.current, cameraZoom.current) : next;
       const signature = getPublishedInputSignature(input.current);
       if (signature !== publishedState.current) { publishInputState(input.current); publishedState.current = signature; }

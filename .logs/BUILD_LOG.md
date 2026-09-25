@@ -48,3 +48,5 @@
 - C4 backfill/network authority update (2026-09-24): `node --check server/realtime-server.mjs` and final `npm.cmd run build` passed (646 modules; existing 3D bundle-size warning). Added deterministic 4v4 bot slot roles, 100 ms jitter-buffered Hermite snapshot smoothing, and server-validated shot/goal messaging.
 
 - C5 player progression/cosmetics update (2026-09-24): `node --check server/realtime-server.mjs` and `npm.cmd run build` passed (649 modules; existing 3D bundle-size warning). Added persistent Polo Coins/profile awards, locker room unlocks/equipment, local avatar material swapping, and cosmetic identifiers in room join/snapshot presentation.
+
+- C6 mobile controls/responsive UI update (2026-09-24): final `npm.cmd run build` passed with TypeScript and Vite (651 modules; existing 3D bundle-size warning). Added touch-only virtual movement/action controls, responsive narrow-screen camera FOV, and safe-area-aware mobile layout rules for game overlays and menu/modals.
