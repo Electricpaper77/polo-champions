@@ -1,3 +1,4 @@
+- Gameplay visual hotfix (2026-09-25): npm.cmd run build passed with TypeScript and Vite (665 modules). Replaced active GLTF horse/rider gameplay rendering with deterministic procedural meshes to remove black oversized avatar blobs on the deployed WebGL scene.
 # Build Log
 
 - Field scale, kickoff formation, goal geometry, and avatar proportion repair (2026-09-25): `npm.cmd run build` passed with TypeScript and Vite (667 modules). Expanded the playable turf to 72×120, aligned local/server scoring at ±56, moved seating beyond the sideboards, corrected the throw-in formation, and normalized GLTF avatar scale to the gameplay unit system.
@@ -88,3 +89,4 @@
 - C10 audio/settings update (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (658 modules; existing 3D bundle-size warning). Added a Three.js camera listener bridge, global master-volume/mute controls, UI audio cues, and retained positional horse/ball sound routing with PWA GLB/MP3 cache patterns.
 
 - D1 production telemetry/safety update (2026-09-24): `npm.cmd run build` passed TypeScript and Vite module transformation (660 modules). Added anonymous analytics hooks, a root crash boundary, and a low-FPS watchdog component.
+
