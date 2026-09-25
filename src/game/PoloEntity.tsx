@@ -16,7 +16,9 @@ type PoloEntityProps = {
 };
 
 function getReadableCoat(color: string) {
-  return color.toLowerCase() === "#171716" ? "#3a2a20" : color;
+  const value = new THREE.Color(color);
+  const luminance = value.r * 0.2126 + value.g * 0.7152 + value.b * 0.0722;
+  return luminance < 0.16 ? "#5a3928" : color;
 }
 
 function HorseBody({ coat, wrapColor, saddlePad }: { coat: string; wrapColor: string; saddlePad: string }) {
