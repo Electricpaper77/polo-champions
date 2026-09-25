@@ -1,5 +1,7 @@
 # Build Log
 
+- D2 social, sharing, and production debug-lock update (2026-09-24): `npm.cmd run build` passed (661 modules transformed; PWA precache generated successfully).
+
 - Initialized vertical-slice plan and project rules.
 - Implemented playable field, controllable horse/rider, mallet, physics ball, scoring, HUD, timer, keyboard and gamepad input.
 - Dependencies installed. Initial build exposed unused starter files; TypeScript scope has been narrowed to the standalone Vite game source.
