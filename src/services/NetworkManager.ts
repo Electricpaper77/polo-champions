@@ -15,6 +15,7 @@ type ServerMessage =
   | { type: "PLAYER_CONTROL_CHANGED"; payload: PlayerControlChange }
   | { type: "PONG"; payload: { clientTime: number; serverTime: number } }
   | { type: "CHAT"; payload: { sender: string; message: string; timestamp: number } }
+  | { type: "LEADERBOARD"; payload: Array<{ username:string; elo:number }> }
   | { type: "ERROR"; payload: { message: string } };
 type ClientMessage =
   | { type: "JOIN_QUEUE"; payload: { playerName: string; mode: "6V6"; cosmetics?: { coat:string; mallet:string } } }
@@ -23,7 +24,8 @@ type ClientMessage =
   | { type: "RESET_MATCH"; payload: { matchId: string } }
   | { type: "INPUT"; payload: { matchId: string; entityId: PoloRiderEntity["id"]; command: InputCommand } }
   | { type: "CHAT"; payload: { matchId: string; message: string } }
-  | { type: "SHOT_ATTEMPT"; payload: { matchId: string } };
+  | { type: "SHOT_ATTEMPT"; payload: { matchId: string } }
+  | { type: "ELO_UPDATE"; payload: { username:string; elo:number } };
 type NetworkEvents = {
   status: { state: "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "OFFLINE"; detail?: string };
   queue: QueueStatus;
@@ -34,6 +36,7 @@ type NetworkEvents = {
   latency: { pingMs: number; serverTime: number };
   error: { message: string };
   chat: { sender: string; message: string; timestamp: number };
+  leaderboard: Array<{ username:string; elo:number }>;
 };
 
 export interface WebSocketTransport {
@@ -200,6 +203,7 @@ export class NetworkManager {
   }
   sendChat(message: string): boolean { const text = message.trim().slice(0, 160); return Boolean(text && this.activeMatch && this.send({ type:"CHAT", payload:{ matchId:this.activeMatch.matchId, message:text } })); }
   sendShotAttempt(): boolean { return Boolean(this.activeMatch && this.send({ type:"SHOT_ATTEMPT", payload:{ matchId:this.activeMatch.matchId } })); }
+  publishElo(username:string,elo:number){return this.send({type:"ELO_UPDATE",payload:{username,elo}})}
 
   private send(message: ClientMessage): boolean {
     if (this.socket?.readyState !== 1) return false;
@@ -230,6 +234,7 @@ export class NetworkManager {
         this.emit("latency", { pingMs, serverTime: message.payload.serverTime });
       }
       else if (message.type === "CHAT") this.emit("chat", message.payload);
+      else if (message.type === "LEADERBOARD") this.emit("leaderboard", message.payload);
       else if (message.type === "ERROR") this.emit("error", message.payload);
     } catch {
       this.emit("error", { message: "Malformed realtime server message" });

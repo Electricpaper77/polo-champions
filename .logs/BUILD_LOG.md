@@ -52,3 +52,7 @@
 - C6 mobile controls/responsive UI update (2026-09-24): final `npm.cmd run build` passed with TypeScript and Vite (651 modules; existing 3D bundle-size warning). Added touch-only virtual movement/action controls, responsive narrow-screen camera FOV, and safe-area-aware mobile layout rules for game overlays and menu/modals.
 
 - C7 performance/PWA update (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (652 modules; existing 3D bundle-size warning). Added camera-distance avatar LOD proxies, low-tier 30 FPS demand rendering with post-processing disabled, and vite-plugin-pwa service-worker/manifest support with GLB/MP3 precaching.
+
+- PWA Workbox size-limit fix (2026-09-24): `npm.cmd run build` passed. Workbox generated `dist/sw.js` and precached 12 entries (4.53 MiB), including the Rapier physics bundle, with `maximumFileSizeToCacheInBytes` raised to 5 MiB.
+
+- C8 Elo/leaderboard update (2026-09-24): `node --check server/realtime-server.mjs` and `npm.cmd run build` passed (654 modules; existing 3D bundle-size warning). Added local 1200-baseline Elo calculation, Top-50 server leaderboard broadcasts, and the main-menu rankings view.

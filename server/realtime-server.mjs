@@ -158,6 +158,8 @@ const initialState = () => ({ tick: 0, serverTime: Date.now(), ackSequence: 0, s
 const compress = (state, ackSequence = 0) => [state.tick, state.serverTime, state.entities.map(entity => [entity.id, entity.position.x, entity.position.z, entity.velocity.x, entity.velocity.z, entity.heading, entity.gait]), [state.ball.position.x, state.ball.position.z, state.ball.velocity.x, state.ball.velocity.z, state.ball.y], ackSequence];
 const rooms = new Map();
 let queue = [];
+const leaderboard = new Map();
+const broadcastLeaderboard = () => { const payload=[...leaderboard.entries()].map(([username,elo])=>({username,elo})).sort((a,b)=>b.elo-a.elo).slice(0,50); for(const socket of wss.clients) send(socket,{type:"LEADERBOARD",payload}); };
 
 function send(socket, message) {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -412,6 +414,8 @@ wss.on("connection", socket => {
     } else if (message.type === "SHOT_ATTEMPT") {
       const room = rooms.get(message.payload?.matchId), entityId = room?.clients.get(socket), entity = room?.state.entities.find(value => value.id === entityId);
       if (room && entity && Math.hypot(entity.position.x - room.state.ball.position.x, entity.position.z - room.state.ball.position.z) < 4.5) send(socket, { type:"SHOT_ACCEPTED", payload:{ tick:room.state.tick } });
+    } else if (message.type === "ELO_UPDATE") {
+      const username=String(message.payload?.username??"PLAYER").slice(0,32),elo=Math.max(100,Math.min(4000,Number(message.payload?.elo)||1200));leaderboard.set(username,elo);broadcastLeaderboard();
     }
   });
   socket.on("close", () => {
@@ -434,6 +438,7 @@ const heartbeat = setInterval(() => {
   }
 }, HEARTBEAT_INTERVAL_MS);
 wss.on("close", () => clearInterval(heartbeat));
+setInterval(broadcastLeaderboard, 15_000);
 
 setInterval(() => {
   const delta = 1 / SIMULATION_HZ;
