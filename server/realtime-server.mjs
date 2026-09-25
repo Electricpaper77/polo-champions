@@ -15,7 +15,9 @@ const PORT = Number(process.env.PORT ?? 8080);
 const SIMULATION_HZ = 60;
 const NETWORK_HZ = 20;
 const HEARTBEAT_INTERVAL_MS = 15_000;
-const CAPACITY = 8;
+const MATCH_TYPES = { "1v1": 2, "2v2": 4, "3v3": 6, "4v4": 8 };
+const DEFAULT_MATCH_TYPE = "4v4";
+const rosterFor = matchType => ENTITY_IDS.slice(0, MATCH_TYPES[matchType] ?? MATCH_TYPES[DEFAULT_MATCH_TYPE]);
 const NORMAL_RIDE_SPEED = 16;
 const MAX_GALLOP_SPEED = 18.05;
 const ACCELERATION_TAU = 1.5;
@@ -154,10 +156,10 @@ const integrateHorseMotion = (entity, input, delta) => {
   };
 };
 const angleDelta = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
-const initialState = () => ({ tick: 0, serverTime: Date.now(), ackSequence: 0, started: false, entities: ENTITY_IDS.map((id, index) => ({ id, position: { x: STARTS[index][0], z: STARTS[index][1] }, velocity: { x: 0, z: 0 }, heading: STARTS[index][2], gait: "IDLE" })), ball: { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: BALL_START_Y, verticalVelocity: 0 } });
+const initialState = (entityIds = ENTITY_IDS) => ({ tick: 0, serverTime: Date.now(), ackSequence: 0, started: false, entities: entityIds.map(id => { const start = START_BY_ID.get(id); return { id, position: { x: start[0], z: start[1] }, velocity: { x: 0, z: 0 }, heading: start[2], gait: "IDLE" }; }), ball: { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: BALL_START_Y, verticalVelocity: 0 } });
 const compress = (state, ackSequence = 0) => [state.tick, state.serverTime, state.entities.map(entity => [entity.id, entity.position.x, entity.position.z, entity.velocity.x, entity.velocity.z, entity.heading, entity.gait]), [state.ball.position.x, state.ball.position.z, state.ball.velocity.x, state.ball.velocity.z, state.ball.y], ackSequence];
 const rooms = new Map();
-let queue = [];
+const queues = new Map(Object.keys(MATCH_TYPES).map(matchType => [matchType, []]));
 const leaderboard = new Map();
 const broadcastLeaderboard = () => { const payload=[...leaderboard.entries()].map(([username,elo])=>({username,elo})).sort((a,b)=>b.elo-a.elo).slice(0,50); for(const socket of wss.clients) send(socket,{type:"LEADERBOARD",payload}); };
 
@@ -169,15 +171,19 @@ function broadcast(room, message) {
   for (const socket of room.clients.keys()) send(socket, message);
 }
 
-function queueStatus() {
-  queue.forEach(client => send(client.socket, { type: "QUEUE_STATUS", payload: { players: queue.length, capacity: CAPACITY, roomId: "kings-cup-queue" } }));
+function queueStatus(matchType) {
+  const queue = queues.get(matchType) ?? [];
+  queue.forEach(client => send(client.socket, { type: "QUEUE_STATUS", payload: { players: queue.length, capacity: MATCH_TYPES[matchType], roomId: `${matchType}-queue`, matchType } }));
 }
 
-function startRoom() {
+function startRoom(matchType = DEFAULT_MATCH_TYPE) {
+  const queue = queues.get(matchType) ?? [];
   if (!queue.length) return;
-  const humans = queue.splice(0, CAPACITY);
+  const capacity = MATCH_TYPES[matchType] ?? MATCH_TYPES[DEFAULT_MATCH_TYPE];
+  const humans = queue.splice(0, capacity);
   const id = `kings-cup-${Date.now()}`;
-  const state = initialState();
+  const activeEntityIds = rosterFor(matchType);
+  const state = initialState(activeEntityIds);
   const room = {
     id,
     state,
@@ -192,11 +198,11 @@ function startRoom() {
     goalCelebrationUntil: null,
     pings: new Map(),
     history: new HistoricalStateBuffer(),
-    emptySince: null,
+    emptySince: null, matchType, capacity, locked: true, activeEntityIds,
   };
   room.history.record(state, state.serverTime);
   humans.forEach((client, index) => {
-    const assignedEntityId = ENTITY_IDS[index];
+    const assignedEntityId = activeEntityIds[index];
     const reconnectToken = randomUUID();
     room.clients.set(client.socket, assignedEntityId);
     room.slots.set(assignedEntityId, {
@@ -216,7 +222,7 @@ function startRoom() {
     room.slots.set(entity.id, { entityId:entity.id, playerName:`[BOT] ${role}`, reconnectToken:null, control:"BOT", socket:null, disconnectedAt:null, reconnectDeadline:null, role });
   }
   rooms.set(id, room);
-  queueStatus();
+  queueStatus(matchType);
 }
 
 function updateHuman(room, entity, command, delta) {
@@ -352,7 +358,7 @@ function resetSimulation(room, resetScore = false) {
   room.state.started = false;
   room.goalCelebrationUntil = null;
   if (resetScore) room.score = { blue:0, red:0 };
-  room.state.entities.forEach((entity,index)=>{entity.position={x:STARTS[index][0],z:STARTS[index][1]};entity.velocity={x:0,z:0};entity.heading=STARTS[index][2];entity.gait="IDLE";});
+  room.state.entities.forEach(entity=>{const start=START_BY_ID.get(entity.id);entity.position={x:start[0],z:start[1]};entity.velocity={x:0,z:0};entity.heading=start[2];entity.gait="IDLE";});
   room.inputs.clear();
   room.strikes.clear();
   room.botStrikeCooldowns.clear();
@@ -385,10 +391,17 @@ wss.on("connection", socket => {
     let message;
     try { message = JSON.parse(String(data)); } catch { return send(socket, { type: "ERROR", payload: { message: "Malformed message" } }); }
     if (message.type === "JOIN_QUEUE") {
-      if (!queue.some(item => item.socket === socket)) queue.push({ socket, name: String(message.payload?.playerName ?? "PLAYER"), cosmetics:message.payload?.cosmetics });
-      queueStatus();
-      if (queue.length >= CAPACITY) startRoom();
-      else setTimeout(() => { if (queue.some(item => item.socket === socket)) startRoom(); }, 3000);
+      const requestedType = String(message.payload?.matchType ?? DEFAULT_MATCH_TYPE);
+      const matchType = Object.hasOwn(MATCH_TYPES, requestedType) ? requestedType : DEFAULT_MATCH_TYPE;
+      const queue = queues.get(matchType);
+      if (!queue.some(item => item.socket === socket) && queue.length >= MATCH_TYPES[matchType]) return send(socket, { type: "ERROR", payload: { message: `${matchType} lobby is locked` } });
+      if (!queue.some(item => item.socket === socket)) queue.push({ socket, name: String(message.payload?.playerName ?? "PLAYER"), cosmetics:message.payload?.cosmetics, matchType });
+      queueStatus(matchType);
+      if (queue.length >= MATCH_TYPES[matchType]) {
+        const countdown = { type: "START_COUNTDOWN", payload: { matchType, capacity: MATCH_TYPES[matchType], seconds: 1 } };
+        queue.forEach(client => send(client.socket, countdown));
+        setTimeout(() => startRoom(matchType), 1_000);
+      } else setTimeout(() => { if (queue.some(item => item.socket === socket)) startRoom(matchType); }, 3000);
     } else if (message.type === "RECONNECT") {
       const room = rooms.get(message.payload?.matchId);
       const reclaimed = room && reclaimPlayerSlot(room, socket, message.payload?.reconnectToken);
@@ -419,12 +432,14 @@ wss.on("connection", socket => {
     }
   });
   socket.on("close", () => {
-    queue = queue.filter(item => item.socket !== socket);
+    for (const queue of queues.values()) {
+      const index = queue.findIndex(item => item.socket === socket);
+      if (index >= 0) { const [removed] = queue.splice(index, 1); queueStatus(removed.matchType); }
+    }
     for (const room of rooms.values()) {
       const event = markPlayerDisconnected(room, socket);
       if (event) broadcast(room, { type: "PLAYER_CONTROL_CHANGED", payload: event });
     }
-    queueStatus();
   });
 });
 

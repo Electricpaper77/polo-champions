@@ -2,11 +2,12 @@ import { createInitialNetworkSnapshot, decompressSnapshot, type CompressedSnapsh
 import type { MatchScore, MatchTeam, PoloRiderEntity } from "../game/GameState";
 import { matchTelemetry } from "./Telemetry";
 import { PlayerProfileStore } from "./PlayerProfile";
+import type { MatchType } from "../game/MatchManager";
 
 export type MatchStartPayload = { matchId: string; assignedEntityId: PoloRiderEntity["id"]; reconnectToken: string | null; initialState: NetworkSnapshot; mode: "WEBSOCKET" | "BOT_BACKFILL"; playerNames?: Partial<Record<PoloRiderEntity["id"], string>>; playerCosmetics?: Partial<Record<PoloRiderEntity["id"], { coat:string; mallet:string }>> };
 export type PlayerControlChange = { entityId: PoloRiderEntity["id"]; playerName: string; state: "AI_BACKFILL" | "RECONNECTED"; reconnectDeadline?: number };
 export type GoalScored = { team: MatchTeam; score: MatchScore; celebrationMs: number };
-type QueueStatus = { players: number; capacity: number; roomId: string };
+type QueueStatus = { players: number; capacity: number; roomId: string; matchType?: MatchType };
 type ServerMessage =
   | { type: "QUEUE_STATUS"; payload: QueueStatus }
   | { type: "MATCH_START"; payload: Omit<MatchStartPayload, "initialState"> & { initialState: CompressedSnapshot } }
@@ -18,7 +19,7 @@ type ServerMessage =
   | { type: "LEADERBOARD"; payload: Array<{ username:string; elo:number }> }
   | { type: "ERROR"; payload: { message: string } };
 type ClientMessage =
-  | { type: "JOIN_QUEUE"; payload: { playerName: string; mode: "6V6"; cosmetics?: { coat:string; mallet:string } } }
+  | { type: "JOIN_QUEUE"; payload: { playerName: string; matchType?: MatchType; cosmetics?: { coat:string; mallet:string } } }
   | { type: "RECONNECT"; payload: { matchId: string; reconnectToken: string } }
   | { type: "PING"; payload: { clientTime: number } }
   | { type: "RESET_MATCH"; payload: { matchId: string } }
@@ -180,11 +181,11 @@ export class NetworkManager {
     return connecting;
   }
 
-  requestRoom(playerName: string): boolean {
+  requestRoom(playerName: string, matchType: MatchType = "4v4"): boolean {
     this.lastPlayerName = playerName;
     if (this.queued || this.activeMatch) return false;
     const profile=PlayerProfileStore.get();
-    const sent = this.send({ type: "JOIN_QUEUE", payload: { playerName, mode: "6V6", cosmetics:{coat:profile.equippedCoat,mallet:profile.equippedMallet} } });
+    const sent = this.send({ type: "JOIN_QUEUE", payload: { playerName, matchType, cosmetics:{coat:profile.equippedCoat,mallet:profile.equippedMallet} } });
     this.queued = sent;
     return sent;
   }
