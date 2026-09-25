@@ -99,3 +99,5 @@
 
 - D1 production telemetry/safety update (2026-09-24): `npm.cmd run build` passed TypeScript and Vite module transformation (660 modules). Added anonymous analytics hooks, a root crash boundary, and a low-FPS watchdog component.
 
+- UX design instruction and release polish pass (2026-09-25): `npm.cmd run build` passed with TypeScript and Vite (654 modules). Added the British Polo visual direction guide from the supplied reference images, plus a navy/gold/ivory loading presentation treatment while preserving the readable gameplay overlay for release testing.
+
