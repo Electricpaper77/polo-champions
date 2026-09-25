@@ -50,3 +50,5 @@
 - C5 player progression/cosmetics update (2026-09-24): `node --check server/realtime-server.mjs` and `npm.cmd run build` passed (649 modules; existing 3D bundle-size warning). Added persistent Polo Coins/profile awards, locker room unlocks/equipment, local avatar material swapping, and cosmetic identifiers in room join/snapshot presentation.
 
 - C6 mobile controls/responsive UI update (2026-09-24): final `npm.cmd run build` passed with TypeScript and Vite (651 modules; existing 3D bundle-size warning). Added touch-only virtual movement/action controls, responsive narrow-screen camera FOV, and safe-area-aware mobile layout rules for game overlays and menu/modals.
+
+- C7 performance/PWA update (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (652 modules; existing 3D bundle-size warning). Added camera-distance avatar LOD proxies, low-tier 30 FPS demand rendering with post-processing disabled, and vite-plugin-pwa service-worker/manifest support with GLB/MP3 precaching.

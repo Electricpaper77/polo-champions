@@ -9,6 +9,7 @@ import { AnimationController, type EntityActionState } from "./AnimationControll
 import { useHorseModel, useRiderModel } from "./AssetManager";
 import { getGait, getRiderPose, TEAM_PRESENTATION } from "./HorseControls";
 import { getPlayerAvatarCosmetics } from "./PlayerAvatar";
+import { useAvatarLod } from "./LODManager";
 
 function configurePbr(root: THREE.Object3D, tint: string, glossy = false): void {
   root.traverse(child => {
@@ -31,6 +32,7 @@ export function PoloEntity({ entity, action = "NONE", motion }: { entity: PoloRi
   const horse = useMemo(() => clone(horseAsset.scene), [horseAsset.scene]);
   const rider = useMemo(() => clone(riderAsset.scene), [riderAsset.scene]);
   const root = useRef<THREE.Group>(null), riderPivot = useRef<THREE.Group>(null), mallet = useRef<THREE.Group>(null);
+  const useLowLod = useAvatarLod(root);
   const controller = useRef<AnimationController | null>(null);
   const clips = useMemo(() => [...horseAsset.animations, ...riderAsset.animations], [horseAsset.animations, riderAsset.animations]);
   const avatar = entity.id === "player" ? getPlayerAvatarCosmetics() : null;
@@ -58,6 +60,7 @@ export function PoloEntity({ entity, action = "NONE", motion }: { entity: PoloRi
   });
 
   const presentation = TEAM_PRESENTATION[entity.team];
+  if (useLowLod) return <group ref={root} name={`polo-entity-${entity.id}-lod`}><mesh position={[0,1,0]} castShadow><capsuleGeometry args={[.5,1.7,4,8]}/><meshStandardMaterial color={avatar?.coat ?? coatColors[entity.coat]}/></mesh><mesh position={[0,2.15,-.1]}><sphereGeometry args={[.27,10,8]}/><meshStandardMaterial color={presentation.helmet}/></mesh><mesh position={[.45,.75,.2]} rotation={[0,0,.25]}><cylinderGeometry args={[.025,.025,1.8,6]}/><meshStandardMaterial color={malletColor}/></mesh></group>;
   return <group ref={root} name={`polo-entity-${entity.id}`}>
     <group name="horse-torso">
       <primitive object={horse} scale={0.86} position={[0, 0, 0]} />

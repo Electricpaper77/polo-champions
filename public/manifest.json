@@ -1,0 +1,9 @@
+{
+  "name":"Polo Champions",
+  "short_name":"Polo Champions",
+  "start_url":"/",
+  "display":"standalone",
+  "background_color":"#07130a",
+  "theme_color":"#c99a45",
+  "icons":[{"src":"/favicon.svg","sizes":"any","type":"image/svg+xml"}]
+}

@@ -15,7 +15,7 @@ const speedLineShader = {
 };
 
 /** Subtle bloom/AO plus speed-only screen streaking; no new package required. */
-export function PostProcessing() {
+export function PostProcessing({ enabled = true }: { enabled?: boolean }) {
   const { gl, scene, camera, size } = useThree();
   const speed = useMatch(state => state.telemetry.speed);
   const { composer, speedPass } = useMemo(() => {
@@ -28,7 +28,7 @@ export function PostProcessing() {
     return { composer, speedPass };
   }, [gl, scene, camera]);
   useEffect(() => { composer.setSize(size.width, size.height); }, [composer, size]);
-  useFrame((_, delta) => { speedPass.uniforms.intensity.value = Math.max(0, Math.min(1, (speed - 12) / 20)); composer.render(delta); }, 1);
+  useFrame((_, delta) => { if (!enabled) return; speedPass.uniforms.intensity.value = Math.max(0, Math.min(1, (speed - 12) / 20)); composer.render(delta); }, 1);
   useEffect(() => () => composer.dispose(), [composer]);
   return null;
 }
