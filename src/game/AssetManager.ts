@@ -20,19 +20,20 @@ async function loadAsset(url: string): Promise<void> {
   preparePbrModel(model);
 }
 
-/** Normalizes authored GLTF PBR values so meshes do not render as black reflections. */
+/** Replaces reflection-prone authored PBR surfaces with brightly lit Lambert materials. */
 export function preparePbrModel(model: GLTF): GLTF {
   model.scene.traverse(child => {
     if (!(child instanceof THREE.Mesh)) return;
     child.castShadow = true;
     child.receiveShadow = true;
+    if (child.userData.lambertPrepared) return;
     const materials = Array.isArray(child.material) ? child.material : [child.material];
-    materials.forEach(material => {
-      if (!(material instanceof THREE.MeshStandardMaterial)) return;
-      material.metalness = .1;
-      material.roughness = .8;
-      material.needsUpdate = true;
+    const lambert = materials.map(material => {
+      const source = material as THREE.MeshStandardMaterial;
+      return new THREE.MeshLambertMaterial({ color: source.color ?? 0x5c4033, map: source.map ?? null });
     });
+    child.material = Array.isArray(child.material) ? lambert : lambert[0];
+    child.userData.lambertPrepared = true;
   });
   return model;
 }

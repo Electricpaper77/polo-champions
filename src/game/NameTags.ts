@@ -1,9 +1,12 @@
 import { useFrame, useThree } from "@react-three/fiber";
-import { createElement, useEffect, useMemo } from "react";
+import { createElement, useEffect, useMemo, useState } from "react";
 import { CSS2DObject, CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
 
 export function NameTag({ name }: { name: string }) {
+  const [showBots, setShowBots] = useState(false);
   const object = useMemo(() => { const element = document.createElement("div"); element.className = "player-name-tag"; element.textContent = name; const tag = new CSS2DObject(element); tag.position.set(0, 2.9, 0); return tag; }, [name]);
+  useEffect(() => { const down = (event: KeyboardEvent) => event.code === "Tab" && setShowBots(true), up = (event: KeyboardEvent) => event.code === "Tab" && setShowBots(false); window.addEventListener("keydown", down); window.addEventListener("keyup", up); return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); }; }, []);
+  if (name.startsWith("[BOT]") && !showBots) return null;
   return createElement("primitive", { object });
 }
 

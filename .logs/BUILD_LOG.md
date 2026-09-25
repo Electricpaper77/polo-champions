@@ -1,5 +1,7 @@
 # Build Log
 
+- Mesh brightness and bot-nameplate declutter hotfix (2026-09-24): `npm.cmd run build` passed (665 modules transformed; TypeScript and Vite clean).
+
 - Progression UX completion (2026-09-24): `npm.cmd run build` completed with refreshed TypeScript/Vite production assets.
 
 - Hotfix 2 hemisphere lighting and GLTF PBR traversal update (2026-09-24): `npm.cmd run build` passed (665 modules transformed; TypeScript and Vite clean).
