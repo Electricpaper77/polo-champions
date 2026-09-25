@@ -1,6 +1,7 @@
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment } from "@react-three/drei";
 import { Physics, RigidBody, type RapierRigidBody } from "@react-three/rapier";
+import { GameSceneLighting } from "./GameScene";
 import * as THREE from "three";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useInput, type Input } from "./InputManager";
@@ -389,7 +390,7 @@ export function Game() {
   useEffect(() => { if (!celebratingGoal) return; const timer = setTimeout(() => completeGoalCelebration(), GOAL_CELEBRATION_MS); return () => clearTimeout(timer); }, [celebratingGoal, completeGoalCelebration]);
   useEffect(() => { if (!chukkerTransition) return; AudioEngine.playWhistle(); AudioManager.play("referee_whistle"); const timer = setTimeout(advanceChukker, 2500); return () => clearTimeout(timer); }, [chukkerTransition, advanceChukker]);
   useEffect(() => { const timer = setInterval(() => { if (!paused && started) setSec(Math.max(0, useMatch.getState().seconds - 1)); }, 1000); const pause = () => toggle(), restart = () => { networkManager.requestMatchReset(); reset(); }; window.addEventListener("polo-pause", pause); window.addEventListener("polo-reset", restart); return () => { clearInterval(timer); window.removeEventListener("polo-pause", pause); window.removeEventListener("polo-reset", restart); }; }, [paused, started, setSec, toggle, reset]);
-  return <main><Canvas shadows frameloop={lowTier?"demand":"always"} dpr={lowTier?[.65,.8]:[.75,1]} camera={{fov:54,position:[0,8,25]}}><Scene input={input} cameraMode={cameraMode} lowTier={lowTier} replay={replay}/></Canvas><Hud cameraMode={cameraMode} onToggleAudio={() => setMuted(AudioEngine.toggleMuted())}/>{chukkerTransition && <div className="pause">END OF CHUKKER<br/><small>PONY CHANGE</small></div>}<DeveloperTimeSkip/><PostMatchModal/><NetworkNotice/><CareerMatchEnd/></main>;
+  return <main><Canvas shadows frameloop={lowTier?"demand":"always"} dpr={lowTier?[.65,.8]:[.75,1]} camera={{fov:54,position:[0,8,25]}}><GameSceneLighting/><Scene input={input} cameraMode={cameraMode} lowTier={lowTier} replay={replay}/></Canvas><Hud cameraMode={cameraMode} onToggleAudio={() => setMuted(AudioEngine.toggleMuted())}/>{chukkerTransition && <div className="pause">END OF CHUKKER<br/><small>PONY CHANGE</small></div>}<DeveloperTimeSkip/><PostMatchModal/><NetworkNotice/><CareerMatchEnd/></main>;
 }
 
 
