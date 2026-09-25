@@ -271,7 +271,7 @@ function RealtimeHorse({ ball, input, cameraMode }: { ball: React.RefObject<Rapi
     });
   });
 
-  return <group ref={group}><Suspense fallback={null}><PoloEntity entity={cosmetics} motion={motion} action={actionPhase === "WIND_UP" ? "WIND_UP" : actionPhase === "CONTACT" || actionPhase === "FOLLOW_THROUGH" ? "STRIKE" : input.current.rideOff ? "RIDE_OFF_BRACE" : "NONE"} /></Suspense></group>;
+  return <group ref={group} name="local-player-control-proxy" />;
 }
 
 function RealtimeBots({ ball, input }: { ball: React.RefObject<RapierRigidBody | null>; input:React.RefObject<Input> }) {
