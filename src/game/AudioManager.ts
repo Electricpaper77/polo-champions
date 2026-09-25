@@ -18,6 +18,14 @@ class SpatialAudioManager {
   private emitters = new Map<string, PannerNode>();
   private gallopClock = new Map<string, number>();
   private ambient: AudioBufferSourceNode | null = null;
+  private threeListener: THREE.AudioListener | null = null;
+  private muted = false;
+
+  attachThreeListener(camera: THREE.Camera) { if (!this.threeListener) { this.threeListener = new THREE.AudioListener(); camera.add(this.threeListener); this.threeListener.setMasterVolume(.45); } }
+  setMasterVolume(value:number) { const volume=Math.max(0,Math.min(1,value)); this.master?.gain.setTargetAtTime(this.muted?0:volume,this.context?.currentTime??0,.03); this.threeListener?.setMasterVolume(this.muted?0:volume); }
+  toggleMute(){this.muted=!this.muted;this.setMasterVolume(.45);return this.muted}
+  isMuted(){return this.muted}
+  playUi(sound:"click"|"start"|"goal"){this.play(sound==="click"?"mallet_swing":sound==="start"?"referee_whistle":"crowd_cheer");}
 
   async unlock() {
     const context = this.ensure();
@@ -127,3 +135,4 @@ class SpatialAudioManager {
 }
 
 export const AudioManager = new SpatialAudioManager();
+import * as THREE from "three";

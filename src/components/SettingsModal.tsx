@@ -1,0 +1,3 @@
+import { useState } from "react";
+import { AudioManager } from "../game/AudioManager";
+export function SettingsModal(){const [volume,setVolume]=useState(.45),[muted,setMuted]=useState(AudioManager.isMuted());return <section className="customization settings-modal"><small>AUDIO SETTINGS</small><h1>STADIUM SOUND</h1><label>MASTER VOLUME <input aria-label="Master volume" type="range" min="0" max="1" step=".05" value={volume} onChange={event=>{const value=Number(event.target.value);setVolume(value);AudioManager.setMasterVolume(value)}}/></label><button onClick={()=>setMuted(AudioManager.toggleMute())}>{muted?"UNMUTE":"MASTER MUTE"}</button></section>}

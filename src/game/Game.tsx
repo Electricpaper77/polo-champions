@@ -252,6 +252,7 @@ function RealtimeHorse({ ball, input, cameraMode }: { ball: React.RefObject<Rapi
         state.camera.lookAt(look.x, look.y + 1, look.z);
       }
       AudioManager.setListenerPosition(state.camera.position);
+      AudioManager.attachThreeListener(state.camera);
       const responsiveFov=getResponsiveCameraFov(state.size.width/state.size.height), perspectiveCamera=state.camera as THREE.PerspectiveCamera;
       if (perspectiveCamera.fov !== responsiveFov) { perspectiveCamera.fov=responsiveFov; perspectiveCamera.updateProjectionMatrix(); }
 

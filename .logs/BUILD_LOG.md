@@ -58,3 +58,5 @@
 - C8 Elo/leaderboard update (2026-09-24): `node --check server/realtime-server.mjs` and `npm.cmd run build` passed (654 modules; existing 3D bundle-size warning). Added local 1200-baseline Elo calculation, Top-50 server leaderboard broadcasts, and the main-menu rankings view.
 
 - C9 replay/spectator update (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (657 modules; existing 3D bundle-size warning). Added 10 Hz in-memory state recording, replay interpolation controls, and a detached spectator fly camera.
+
+- C10 audio/settings update (2026-09-24): `npm.cmd run build` passed with TypeScript and Vite (658 modules; existing 3D bundle-size warning). Added a Three.js camera listener bridge, global master-volume/mute controls, UI audio cues, and retained positional horse/ball sound routing with PWA GLB/MP3 cache patterns.
