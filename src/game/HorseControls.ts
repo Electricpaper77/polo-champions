@@ -10,6 +10,9 @@ export const GALLOP_STAMINA_DRAIN = 0.24;
 export const STAMINA_RECOVERY = 0.12;
 export const TURF_DRAG = .08;
 export const TURN_BASE_RATE = 1.5;
+export const DEV_GOD_MAX_SPEED = 45;
+export const DEV_GOD_ACCELERATION = 100;
+export const DEV_GOD_DRAG = 0;
 
 export type Gait = "IDLE" | "WALK" | "TROT" | "CANTER" | "GALLOP";
 export type RiderPose = { torsoPitch: number; hipPitch: number; seatHeight: number; strideCadence: number };
@@ -48,6 +51,7 @@ export type HorseMotionState = { position: HorseMotionVector; velocity: HorseMot
 
 const clamp = (value: number, minimum: number, maximum: number) => Math.max(minimum, Math.min(maximum, value));
 const lerp = (from: number, to: number, amount: number) => from + (to - from) * amount;
+const godMode = () => typeof window !== "undefined" && window.DEV_GOD_MODE === true;
 
 export function exponentialAlpha(dt: number, tau: number) {
   if (dt <= 0) return 0;
@@ -59,6 +63,7 @@ export function steeringRate(speed: number, agility = 1) {
 }
 
 export function getTargetSpeed({ throttle, gallop, brake }: HorseMotionInput, archetype: HorseArchetype = "ALL_ROUNDER") {
+  if (godMode()) return brake ? 0 : throttle * DEV_GOD_MAX_SPEED;
   const config = getHorseArchetype(archetype);
   if (brake) return BRAKE_SPEED;
   const requested = throttle > 0
@@ -111,7 +116,8 @@ export function integrateHorseMotion(state: HorseMotionState, input: HorseMotion
   const safeDelta = Math.max(0, dt);
   const config = getHorseArchetype(archetype);
   const currentSpeed = Math.hypot(state.velocity.x, state.velocity.z);
-  const targetSpeed = getTargetSpeed(input, archetype), maxSpeed = MAX_GALLOP_SPEED * config.topSpeed;
+  const devGodMode = godMode();
+  const targetSpeed = getTargetSpeed(input, archetype), maxSpeed = devGodMode ? DEV_GOD_MAX_SPEED : MAX_GALLOP_SPEED * config.topSpeed;
   const currentForward = { x: Math.sin(state.heading), z: Math.cos(state.heading) };
   const signedForwardSpeed = state.velocity.x * currentForward.x + state.velocity.z * currentForward.z;
   const direction = Math.abs(signedForwardSpeed) > .05 ? Math.sign(signedForwardSpeed) : targetSpeed < 0 ? -1 : 1;
@@ -119,8 +125,8 @@ export function integrateHorseMotion(state: HorseMotionState, input: HorseMotion
   const heading = state.heading + yawRate * safeDelta;
   const forward = { x: Math.sin(heading), z: Math.cos(heading) };
   const accelerating = Math.abs(targetSpeed) > currentSpeed && !input.brake;
-  const acceleration = accelerating ? (12 * config.acceleration) * (1 - Math.pow(clamp(currentSpeed / Math.max(maxSpeed, .01), 0, 1), 1.5)) : 0;
-  const braking = input.brake ? 18 : targetSpeed === 0 ? TURF_DRAG * currentSpeed : 0;
+  const acceleration = accelerating ? (devGodMode ? DEV_GOD_ACCELERATION : 12 * config.acceleration) * (1 - Math.pow(clamp(currentSpeed / Math.max(maxSpeed, .01), 0, 1), 1.5)) : 0;
+  const braking = input.brake ? 18 : targetSpeed === 0 ? (devGodMode ? DEV_GOD_DRAG : TURF_DRAG) * currentSpeed : 0;
   const signed = Math.max(0, currentSpeed + (acceleration - braking) * safeDelta);
   let velocity = { x: forward.x * signed, z: forward.z * signed };
   const magnitude = Math.hypot(velocity.x, velocity.z);

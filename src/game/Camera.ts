@@ -4,7 +4,7 @@ export const MIN_CAMERA_DISTANCE = 5;
 export const MAX_CAMERA_DISTANCE = 20;
 export const DEFAULT_CAMERA_DISTANCE = 11;
 export const CAMERA_WHEEL_STEP = 1.25;
-export type CameraMode = "FOLLOW" | "BROADCAST" | "GOAL_CAM";
+export type CameraMode = "FOLLOW" | "BROADCAST" | "GOAL_CAM" | "FREE_FLY";
 export const CAMERA_MODES: CameraMode[] = ["FOLLOW", "BROADCAST", "GOAL_CAM"];
 export function nextCameraMode(current: CameraMode): CameraMode { return CAMERA_MODES[(CAMERA_MODES.indexOf(current) + 1) % CAMERA_MODES.length]; }
 

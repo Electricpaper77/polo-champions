@@ -18,6 +18,19 @@ export const MALLET_HEAD_RADIUS = .09;
 export const BALL_RADIUS = .42;
 export const MALLET_CONTACT_RADIUS = MALLET_HEAD_RADIUS + BALL_RADIUS;
 
+declare global {
+  interface Window { DEV_GOD_MODE?: boolean; }
+}
+
+/** Keyboard-only developer switch; normal sessions remain on tuned field physics. */
+export function isDevGodMode() { return typeof window !== "undefined" && window.DEV_GOD_MODE === true; }
+
+if (typeof window !== "undefined") {
+  window.addEventListener("keydown", event => {
+    if (event.code === "KeyG" && !event.repeat) window.DEV_GOD_MODE = !window.DEV_GOD_MODE;
+  });
+}
+
 export function getStrikePhase(elapsed: number, charging: boolean): StrikePhase {
   if (charging) return "WIND_UP";
   if (elapsed < 0) return "READY";

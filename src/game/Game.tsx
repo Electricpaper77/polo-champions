@@ -22,6 +22,7 @@ import { AudioEngine } from "../services/AudioEngine";
 import { MatchParticles } from "./Particles";
 import { PostMatchModal } from "../components/PostMatchModal";
 import { DynamicResolution } from "./Performance";
+import { DeveloperTimeSkip } from "../components/UI";
 
 const FIELD_X=52, FIELD_Z=82;
 const ACTIVE_ARCHETYPE: HorseArchetype = "ALL_ROUNDER";
@@ -60,6 +61,7 @@ function RealtimeHorse({ ball, input, cameraMode }: { ball: React.RefObject<Rapi
   const releasedBackhand = useRef(false);
   const powerStrikeArmed = useRef(false);
   const cameraDistance = useRef(DEFAULT_CAMERA_DISTANCE);
+  const freeFlyPosition = useRef<THREE.Vector3 | null>(null);
   const lastUtilityAction = useRef("");
   const telemetryClock = useRef(0);
   const sequence = useRef(0);
@@ -113,7 +115,7 @@ function RealtimeHorse({ ball, input, cameraMode }: { ball: React.RefObject<Rapi
         velocity.current.set(external.velocity.x,0,external.velocity.y);
         speed.current=velocity.current.length();
       }
-      const hasPlayerIntent = Math.abs(currentInput.throttle)>.01 || Math.abs(currentInput.steer)>.01 || currentInput.strike || currentInput.backhand || currentInput.rideOff;
+      const hasPlayerIntent = cameraMode !== "FREE_FLY" && (Math.abs(currentInput.throttle)>.01 || Math.abs(currentInput.steer)>.01 || currentInput.strike || currentInput.backhand || currentInput.rideOff);
       const frozenForGoal=currentStore.celebratingGoal!==null;
       const frozenAtKickoff = frozenForGoal||(!currentStore.started && !hasPlayerIntent);
       if (!currentStore.started && hasPlayerIntent&&!frozenForGoal) { currentStore.setStarted(true); setMessage("PLAY"); }
@@ -130,7 +132,7 @@ function RealtimeHorse({ ball, input, cameraMode }: { ball: React.RefObject<Rapi
       motion.current = { turn: currentInput.steer, braking: currentInput.brake };
       const canGallop = currentInput.gallop && stamina.current > 0;
       const activeArchetype = cosmetics.archetype ?? ACTIVE_ARCHETYPE;
-      if (frozenAtKickoff) {
+      if (frozenAtKickoff || cameraMode === "FREE_FLY") {
         velocity.current.set(0,0,0);
         speed.current=0;
         latestCommand.current=null;
@@ -149,6 +151,10 @@ function RealtimeHorse({ ball, input, cameraMode }: { ball: React.RefObject<Rapi
       AudioEngine.syncGallop(speed.current);
       stamina.current = advanceStamina(stamina.current, gait === "GALLOP" && canGallop, delta, activeArchetype);
       const forward = new THREE.Vector3(Math.sin(yaw.current), 0, Math.cos(yaw.current));
+      if (currentInput.focus && ball.current) {
+        ball.current.setTranslation({ x: position.current.x + 1.5, y: .15, z: position.current.z }, true);
+        ball.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      }
       position.current.x = THREE.MathUtils.clamp(position.current.x, -24, 24);
       position.current.z = THREE.MathUtils.clamp(position.current.z, -39, 39);
 
@@ -216,10 +222,19 @@ function RealtimeHorse({ ball, input, cameraMode }: { ball: React.RefObject<Rapi
       const sidelineLook = new THREE.Vector3(ballFocus?.x ?? position.current.x, 1.3, ballFocus?.z ?? position.current.z);
       const goalSide = (ballFocus?.z ?? position.current.z) >= 0 ? 1 : -1;
       const goalLook = new THREE.Vector3(ballFocus?.x ?? 0, 0, ballFocus?.z ?? 0);
-      const desired = cameraMode === "BROADCAST" ? new THREE.Vector3(23, 4.4, sidelineLook.z + 7) : cameraMode === "GOAL_CAM" ? new THREE.Vector3(0, 16, goalSide * 38) : followDesired;
-      const look = cameraMode === "BROADCAST" ? sidelineLook : cameraMode === "GOAL_CAM" ? goalLook : followLook;
-      state.camera.position.lerp(desired, 1 - Math.exp(-delta * (5 + Math.min(Math.abs(speed.current) / MAX_GALLOP_SPEED, 1) * 2)));
-      state.camera.lookAt(look.x, look.y + 1, look.z);
+      if (cameraMode === "FREE_FLY") {
+        const freeFly = freeFlyPosition.current ?? state.camera.position.clone();
+        freeFlyPosition.current = freeFly;
+        freeFly.add(new THREE.Vector3(currentInput.steer, currentInput.quickPass ? 1 : currentInput.callPass ? -1 : 0, -currentInput.throttle).multiplyScalar(18 * delta));
+        state.camera.position.copy(freeFly);
+        state.camera.lookAt(freeFly.x + Math.sin(yaw.current) * 8, freeFly.y, freeFly.z + Math.cos(yaw.current) * 8);
+      } else {
+        freeFlyPosition.current = null;
+        const desired = cameraMode === "BROADCAST" ? new THREE.Vector3(23, 4.4, sidelineLook.z + 7) : cameraMode === "GOAL_CAM" ? new THREE.Vector3(0, 16, goalSide * 38) : followDesired;
+        const look = cameraMode === "BROADCAST" ? sidelineLook : cameraMode === "GOAL_CAM" ? goalLook : followLook;
+        state.camera.position.lerp(desired, 1 - Math.exp(-delta * (5 + Math.min(Math.abs(speed.current) / MAX_GALLOP_SPEED, 1) * 2)));
+        state.camera.lookAt(look.x, look.y + 1, look.z);
+      }
 
       if (!frozenAtKickoff) latestCommand.current = { sequence: ++sequence.current, clientTime: Date.now(), input: { throttle: currentInput.throttle, steer: currentInput.steer, gallop: canGallop, brake: currentInput.brake, strike: currentInput.strike, power: combos.powerStrike, backhand: currentInput.backhand, aimX: currentInput.aimX, aimY: currentInput.aimY, rideOff:currentInput.rideOff } };
       telemetryClock.current += delta;
@@ -335,7 +350,19 @@ function Scene({input,cameraMode}:{input:React.RefObject<Input>;cameraMode:Camer
 function FieldRadar(){const entities=useMatch(s=>s.entities),ball=useMatch(s=>s.telemetry.ball),radar=(v:{x:number;z:number})=>({left:`${50+v.x/FIELD_X*90}%`,top:`${50-v.z/FIELD_Z*90}%`});return <section className="radar" aria-label="Field radar"><b>FIELD RADAR · 8 RIDERS</b>{Object.values(entities).map(rider=><i key={rider.id} title={rider.id} className={`pip rider ${rider.team} ${rider.id==="player"?"player":""}`} style={radar({x:rider.position.x,z:rider.position.y})}/>)}<i className="pip ball" title="ball" style={radar(ball)}/></section>}
 function restartMatch(){networkManager.requestMatchReset();useMatch.getState().restart()}
 function Hud({cameraMode,onToggleAudio}:{cameraMode:CameraMode;onToggleAudio:()=>void}){const s=useMatch(),t=s.telemetry;const mm=`${String(Math.floor(s.seconds/60)).padStart(2,"0")}:${String(s.seconds%60).padStart(2,"0")}`,speedKmh=t.speed*3.6;return <div className="hud"><header className="broadcast"><div className="team blue"><b>BLUE</b><small>ROYAL GUARD</small><strong>{s.score.blue}</strong></div><div className="match"><small>CHUKKER 1 | MATCH LIVE</small><strong>{mm}</strong><em>POLO CHAMPIONS</em><small>{s.started?"LIVE":"AWAITING KICK OFF"}</small></div><div className="team red"><strong>{s.score.red}</strong><small>SCARLET WOLVES</small><b>RED</b></div><button onClick={onToggleAudio} aria-label="Toggle master volume">{AudioEngine.isMuted?"SOUND OFF":"SOUND ON"}</button><button onClick={restartMatch}>RESTART</button></header><div className="archetype">{ACTIVE_ARCHETYPE.replace("_"," ")} · {t.gait} · {cameraMode}</div>{!s.started&&<div className="notice">{s.message}</div>}{s.celebratingGoal&&<div className={`goal-celebration ${s.celebratingGoal}`} role="status">{s.celebratingGoal.toUpperCase()} GOAL!</div>}{s.activeFoul&&<div className="foul-toast" role="alert">FOUL: LINE OF BALL CROSSING</div>}<FieldRadar/><section className="telemetry" aria-label="Speed and stamina" data-speed-kmh={speedKmh.toFixed(1)} data-stamina={t.stamina.toFixed(3)} data-gait={t.gait}><div className="speed"><strong>{Math.round(speedKmh)}</strong><small>KM/H</small></div><b>{t.gait}</b><label>STAMINA <span><i style={{width:`${t.stamina*100}%`}}/></span></label></section>{t.strikePhase==="WIND_UP"&&<section className="swing" aria-label="Swing charge">SWING POWER <span><i style={{width:`${t.charge*100}%`}}/></span></section>}<footer aria-label="PC controls"><b>WASD</b> Ride <b>LMB</b> Swing <b>RMB</b> Ride-off <b>SHIFT</b> Sprint <b>C</b> Camera <b>ESC</b> Pause</footer>{s.paused&&<div className="pause" role="dialog" aria-label="Pause menu">PAUSED<br/><button onClick={s.togglePause}>RESUME</button></div>}</div>}
-export function Game(){const setSec=useMatch(s=>s.setSeconds),paused=useMatch(s=>s.paused),started=useMatch(s=>s.started),celebratingGoal=useMatch(s=>s.celebratingGoal),completeGoalCelebration=useMatch(s=>s.completeGoalCelebration),chukkerTransition=useMatch(s=>s.chukkerTransition),advanceChukker=useMatch(s=>s.advanceChukker),matchComplete=useMatch(s=>s.matchComplete),toggle=useMatch(s=>s.togglePause),reset=useMatch(s=>s.resetBall),input=useInput(paused||celebratingGoal!==null),[cameraMode,setCameraMode]=useState<CameraMode>("FOLLOW"),[muted,setMuted]=useState(AudioEngine.isMuted);useEffect(()=>{const unlock=()=>{void AudioEngine.resume();AudioEngine.startAmbientCrowd()};window.addEventListener("pointerdown",unlock,{once:true});window.addEventListener("keydown",unlock,{once:true});return()=>{window.removeEventListener("pointerdown",unlock);window.removeEventListener("keydown",unlock)}},[]);useEffect(()=>{AudioEngine.setPresentationLowPass(paused||matchComplete)},[paused,matchComplete]);useEffect(()=>{const camera=(event:KeyboardEvent)=>{if(event.code==="KeyC"&&!event.repeat)setCameraMode(mode=>nextCameraMode(mode))};window.addEventListener("keydown",camera);return()=>window.removeEventListener("keydown",camera)},[]);useEffect(()=>{const entities=initializeMatchEntities(),match=networkManager.getActiveMatch();if(match)for(const remote of match.initialState.entities){const current=entities[remote.id];entities[remote.id]={...current,position:{x:remote.position.x,y:remote.position.z},velocity:{x:remote.velocity.x,y:remote.velocity.z},heading:remote.heading};}useMatch.getState().setEntities(entities)},[]);useEffect(()=>networkManager.on("goal",goal=>{AudioEngine.playGoalHorn();useMatch.getState().scoreGoal(goal.team,goal.score)}),[]);useEffect(()=>{if(!celebratingGoal)return;const timer=setTimeout(()=>completeGoalCelebration(),GOAL_CELEBRATION_MS);return()=>clearTimeout(timer)},[celebratingGoal,completeGoalCelebration]);useEffect(()=>{if(!chukkerTransition)return;AudioEngine.playWhistle();const timer=setTimeout(advanceChukker,2500);return()=>clearTimeout(timer)},[chukkerTransition,advanceChukker]);useEffect(()=>{const t=setInterval(()=>{if(!paused&&started)setSec(Math.max(0,useMatch.getState().seconds-1))},1000);const p=()=>toggle(),r=()=>{networkManager.requestMatchReset();reset()};window.addEventListener("polo-pause",p);window.addEventListener("polo-reset",r);return()=>{clearInterval(t);window.removeEventListener("polo-pause",p);window.removeEventListener("polo-reset",r)}},[paused,started,setSec,toggle,reset]);return <main><Canvas shadows dpr={[.75,1]} camera={{fov:54,position:[0,8,25]}}><Scene input={input} cameraMode={cameraMode}/></Canvas><Hud cameraMode={cameraMode} onToggleAudio={()=>setMuted(AudioEngine.toggleMuted())}/>{chukkerTransition&&<div className="pause">END OF CHUKKER<br/><small>PONY CHANGE</small></div>}<PostMatchModal/><NetworkNotice/><CareerMatchEnd/></main>}
+export function Game() {
+  const setSec = useMatch(s => s.setSeconds), paused = useMatch(s => s.paused), started = useMatch(s => s.started), celebratingGoal = useMatch(s => s.celebratingGoal), completeGoalCelebration = useMatch(s => s.completeGoalCelebration), chukkerTransition = useMatch(s => s.chukkerTransition), advanceChukker = useMatch(s => s.advanceChukker), matchComplete = useMatch(s => s.matchComplete), toggle = useMatch(s => s.togglePause), reset = useMatch(s => s.resetBall), input = useInput(paused || celebratingGoal !== null);
+  const [cameraMode, setCameraMode] = useState<CameraMode>("FOLLOW"), [muted, setMuted] = useState(AudioEngine.isMuted);
+  useEffect(() => { const unlock = () => { void AudioEngine.resume(); AudioEngine.startAmbientCrowd(); }; window.addEventListener("pointerdown", unlock, { once:true }); window.addEventListener("keydown", unlock, { once:true }); return () => { window.removeEventListener("pointerdown", unlock); window.removeEventListener("keydown", unlock); }; }, []);
+  useEffect(() => { AudioEngine.setPresentationLowPass(paused || matchComplete); }, [paused, matchComplete]);
+  useEffect(() => { const camera = (event:KeyboardEvent) => { if (event.repeat) return; if (event.code === "F10") setCameraMode(mode => mode === "FREE_FLY" ? "FOLLOW" : "FREE_FLY"); else if (event.code === "KeyC") setCameraMode(mode => nextCameraMode(mode)); }; window.addEventListener("keydown", camera); return () => window.removeEventListener("keydown", camera); }, []);
+  useEffect(() => { const entities = initializeMatchEntities(), match = networkManager.getActiveMatch(); if (match) for (const remote of match.initialState.entities) { const current = entities[remote.id]; entities[remote.id] = { ...current, position:{ x:remote.position.x, y:remote.position.z }, velocity:{ x:remote.velocity.x, y:remote.velocity.z }, heading:remote.heading }; } useMatch.getState().setEntities(entities); }, []);
+  useEffect(() => networkManager.on("goal", goal => { AudioEngine.playGoalHorn(); useMatch.getState().scoreGoal(goal.team, goal.score); }), []);
+  useEffect(() => { if (!celebratingGoal) return; const timer = setTimeout(() => completeGoalCelebration(), GOAL_CELEBRATION_MS); return () => clearTimeout(timer); }, [celebratingGoal, completeGoalCelebration]);
+  useEffect(() => { if (!chukkerTransition) return; AudioEngine.playWhistle(); const timer = setTimeout(advanceChukker, 2500); return () => clearTimeout(timer); }, [chukkerTransition, advanceChukker]);
+  useEffect(() => { const timer = setInterval(() => { if (!paused && started) setSec(Math.max(0, useMatch.getState().seconds - 1)); }, 1000); const pause = () => toggle(), restart = () => { networkManager.requestMatchReset(); reset(); }; window.addEventListener("polo-pause", pause); window.addEventListener("polo-reset", restart); return () => { clearInterval(timer); window.removeEventListener("polo-pause", pause); window.removeEventListener("polo-reset", restart); }; }, [paused, started, setSec, toggle, reset]);
+  return <main><Canvas shadows dpr={[.75,1]} camera={{fov:54,position:[0,8,25]}}><Scene input={input} cameraMode={cameraMode}/></Canvas><Hud cameraMode={cameraMode} onToggleAudio={() => setMuted(AudioEngine.toggleMuted())}/>{chukkerTransition && <div className="pause">END OF CHUKKER<br/><small>PONY CHANGE</small></div>}<DeveloperTimeSkip/><PostMatchModal/><NetworkNotice/><CareerMatchEnd/></main>;
+}
 
 
 
