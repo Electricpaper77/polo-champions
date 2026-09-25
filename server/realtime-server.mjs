@@ -33,13 +33,13 @@ const BALL_FLOOR_Y = .06;
 const BALL_START_Y = .15;
 const BALL_GRAVITY = 9.81;
 const MALLET_CONTACT_RADIUS = 1.05;
-const GOAL_LINE_Z = 42;
-const GOAL_HALF_WIDTH = 5;
+const GOAL_LINE_Z = 56;
+const GOAL_HALF_WIDTH = 6;
 const GOAL_CELEBRATION_MS = 1800;
 const RIDE_OFF_ACTIVE_MULTIPLIER = 1.45;
 const MAX_RIDE_OFF_DEFLECTION = 5;
 const ENTITY_IDS = ["player", "blue_2", "blue_3", "blue_4", "red_1", "red_2", "red_3", "red_4"];
-const STARTS = [[-2.5, 2, Math.PI/2], [-2.5, -6, Math.PI/2], [-2.5, -2, Math.PI/2], [-2.5, 6, Math.PI/2], [2.5, -6, -Math.PI/2], [2.5, -2, -Math.PI/2], [2.5, 2, -Math.PI/2], [2.5, 6, -Math.PI/2]];
+const STARTS = [[-5, 5, Math.PI/2], [-5, -15, Math.PI/2], [-5, -5, Math.PI/2], [-5, 15, Math.PI/2], [5, -15, -Math.PI/2], [5, -5, -Math.PI/2], [5, 5, -Math.PI/2], [5, 15, -Math.PI/2]];
 const START_BY_ID = new Map(ENTITY_IDS.map((id, index) => [id, STARTS[index]]));
 const POWER_IDS = new Set(["blue_4", "red_4"]);
 const SPRINTER_IDS = new Set(["blue_2", "red_1", "red_3"]);
@@ -284,14 +284,14 @@ function updateBot(room, entity, roles, delta) {
   const team = entityTeam(entity), start = START_BY_ID.get(entity.id), active = room.state.started && ballInPlay(room.state.ball), role = roles.get(entity.id) ?? (POWER_IDS.has(entity.id) ? "DEFENDER" : "OFFENSE_SUPPORT"), chaser = active && role === "BALL_ATTACKER";
   const attackDirection = team === "blue" ? -1 : 1;
   const lane = start[0] < 0 ? -5 : 5;
-  const ownGoalZ = team === "blue" ? 38 : -38;
+  const ownGoalZ = team === "blue" ? 52 : -52;
   const target = !active
     ? { x:start[0], z:start[1] }
     : role === "BALL_ATTACKER"
       ? room.state.ball.position
       : role === "OFFENSE_SUPPORT"
-        ? { x:clamp(room.state.ball.position.x + lane, -20, 20), z:clamp(room.state.ball.position.z - attackDirection * 7, -35, 35) }
-        : { x:clamp(start[0] * .65 + room.state.ball.position.x * .35, -20, 20), z:clamp(ownGoalZ + (room.state.ball.position.z - ownGoalZ) * .28, -37, 37) };
+        ? { x:clamp(room.state.ball.position.x + lane, -30, 30), z:clamp(room.state.ball.position.z - attackDirection * 7, -52, 52) }
+        : { x:clamp(start[0] * .65 + room.state.ball.position.x * .35, -30, 30), z:clamp(ownGoalZ + (room.state.ball.position.z - ownGoalZ) * .28, -52, 52) };
   const dx = target.x - entity.position.x, dz = target.z - entity.position.z, distance = Math.hypot(dx, dz);
   const desired = distance > .01 ? Math.atan2(dx, dz) : entity.heading;
   const throttle = distance < .35 ? 0 : role === "BALL_ATTACKER" ? .78 : role === "OFFENSE_SUPPORT" ? .4 : .34;
@@ -519,7 +519,7 @@ setInterval(() => {
       const payload={ team:goalTeam, score:{...room.score}, celebrationMs:GOAL_CELEBRATION_MS };
       broadcast(room, { type:"GOAL_VALIDATED", payload });
       broadcast(room, { type:"GOAL_SCORED", payload });
-    } else if (Math.abs(room.state.ball.position.z) > GOAL_LINE_Z + 2 || Math.abs(room.state.ball.position.x) > 26) {
+    } else if (Math.abs(room.state.ball.position.z) > GOAL_LINE_Z + 2 || Math.abs(room.state.ball.position.x) > 36) {
       resetSimulation(room);
     }
     room.history.record(room.state, now);

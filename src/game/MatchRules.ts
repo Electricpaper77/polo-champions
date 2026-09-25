@@ -18,8 +18,8 @@ export const BOT_ACCELERATION = 8;
 export const BOT_TURN_RATE = 1.55;
 export const BALL_IN_PLAY_SPEED = 0.45;
 export const BALL_IN_PLAY_DISTANCE = 1.2;
-export const GOAL_LINE_Z = 42;
-export const GOAL_HALF_WIDTH = 5;
+export const GOAL_LINE_Z = 56;
+export const GOAL_HALF_WIDTH = 6;
 export const RIDE_OFF_ACTIVE_MULTIPLIER = 1.45;
 export const MAX_RIDE_OFF_DEFLECTION = 5;
 
@@ -74,11 +74,11 @@ export function getBotTacticalTarget(rider:PoloRiderEntity, ball:Vec, chasers:Pa
   if(role==="OFFENSE_SUPPORT"){
     const attackDirection=rider.team==="blue"?-1:1;
     const lane=rider.homePosition.x<0?-5:5;
-    return{x:clamp(ball.x+lane,-20,20),z:clamp(ball.z-attackDirection*7,-35,35)};
+    return{x:clamp(ball.x+lane,-30,30),z:clamp(ball.z-attackDirection*7,-52,52)};
   }
   if(role==="BACK_SWEEPER") return tacticalTarget("SWEEPER",rider,ball);
-  const ownGoalZ=rider.team==="blue"?38:-38;
-  return{x:clamp(rider.homePosition.x*.65+ball.x*.35,-20,20),z:clamp(ownGoalZ+(ball.z-ownGoalZ)*.28,-37,37)};
+  const ownGoalZ=rider.team==="blue"?52:-52;
+  return{x:clamp(rider.homePosition.x*.65+ball.x*.35,-30,30),z:clamp(ownGoalZ+(ball.z-ownGoalZ)*.28,-52,52)};
 }
 
 export function getBotMotionInput(rider:PoloRiderEntity,target:Vec,assignedRole:AITacticalRole){

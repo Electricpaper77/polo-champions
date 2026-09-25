@@ -2,7 +2,7 @@ const ADVERTISERS = ["POLO CHAMPIONS", "KING'S CUP", "ROYAL STABLES", "BRITISH P
 
 export const crowdPositions = Array.from({ length: 120 }, (_, index) => {
   const row = Math.floor(index / 30), seat = index % 30;
-  return { id: index, row, x: 24 + row * .8, y: row * .55 + .60, z: -27 + seat * 1.86 + (row % 2) * .5 };
+  return { id: index, row, x: 46 + row * .8, y: row * .55 + .60, z: -27 + seat * 1.86 + (row % 2) * .5 };
 });
 
 function Crowd() {
@@ -15,20 +15,21 @@ function Crowd() {
 /** Lightweight stadium dressing, kept separate from pitch physics and match logic. */
 export function StadiumEnvironment() {
   return <group name="stadium-environment">
-    <mesh name="stadium-turf" rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[52, 82]} /><meshStandardMaterial color="#347b43" roughness={.9} /></mesh>
-    {[-20, 0, 20].map(z => <mesh key={z} position={[0, .012, z]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[52, .16]} /><meshBasicMaterial color="#f3f0df" /></mesh>)}
-    {[-12.2, 12.2].map(x => <group key={x} position={[x, .68, 0]}>
-      <mesh castShadow><boxGeometry args={[.16, 1.1, 80]} /><meshStandardMaterial color="#f4eedb" roughness={.55} /></mesh>
-      {Array.from({ length: 10 }, (_, index) => <group key={index} position={[x > 0 ? -.18 : .18, .02, -36 + index * 8]} rotation={[0, x > 0 ? -Math.PI / 2 : Math.PI / 2, 0]}>
+    <mesh name="stadium-turf" rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[72, 120]} /><meshStandardMaterial color="#347b43" roughness={.9} /></mesh>
+    {[-40, -20, 0, 20, 40].map(z => <mesh key={z} position={[0, .012, z]} rotation={[-Math.PI / 2, 0, 0]}><planeGeometry args={[72, .16]} /><meshBasicMaterial color="#f3f0df" /></mesh>)}
+    {[-34, 34].map(x => <group key={x} position={[x, .68, 0]}>
+      <mesh castShadow><boxGeometry args={[.16, 1.1, 116]} /><meshStandardMaterial color="#f4eedb" roughness={.55} /></mesh>
+      {Array.from({ length: 14 }, (_, index) => <group key={index} position={[x > 0 ? -.18 : .18, .02, -52 + index * 8]} rotation={[0, x > 0 ? -Math.PI / 2 : Math.PI / 2, 0]}>
         <mesh position={[0, .18, 0]} rotation={[0, 0, -.36]}><boxGeometry args={[1.75, .85, .08]} /><meshStandardMaterial color={index % 2 ? "#102a52" : "#8d2428"} /></mesh>
         <mesh position={[-.68, -.18, 0]} rotation={[0, 0, -.62]}><boxGeometry args={[.06, .72, .06]} /><meshStandardMaterial color="#563b24" /></mesh>
         <mesh position={[.68, -.18, 0]} rotation={[0, 0, .62]}><boxGeometry args={[.06, .72, .06]} /><meshStandardMaterial color="#563b24" /></mesh>
       </group>)}
     </group>)}
+    {[-56,56].map(z => <group key={`goal-${z}`} position={[0,0,z]}><mesh position={[-6,2,0]} castShadow><cylinderGeometry args={[.14,.16,4,12]}/><meshStandardMaterial color="#fff7df"/></mesh><mesh position={[6,2,0]} castShadow><cylinderGeometry args={[.14,.16,4,12]}/><meshStandardMaterial color="#fff7df"/></mesh><mesh position={[0,4,0]} rotation={[0,0,Math.PI/2]} castShadow><cylinderGeometry args={[.12,.12,12,12]}/><meshStandardMaterial color="#fff7df"/></mesh></group>)}
     <group name="east-grandstand">
-      {[0, 1, 2, 3].map(row => <mesh key={row} position={[24 + row * .8, row * .55 + .275, 0]} castShadow><boxGeometry args={[.8, .55, 55]} /><meshStandardMaterial color="#344658" roughness={.72} /></mesh>)}
-      <mesh position={[25.45, 3.95, 0]} rotation={[0, 0, -.12]} castShadow><boxGeometry args={[.22, .16, 59]} /><meshStandardMaterial color="#13202c" roughness={.5} /></mesh>
-      <mesh position={[26.1, 3.52, 0]} rotation={[0, 0, -.12]} castShadow><boxGeometry args={[2.1, .12, 59]} /><meshStandardMaterial color="#182c3d" roughness={.46} /></mesh>
+      {[0, 1, 2, 3].map(row => <mesh key={row} position={[46 + row * .8, row * .55 + .275, 0]} castShadow><boxGeometry args={[.8, .55, 55]} /><meshStandardMaterial color="#344658" roughness={.72} /></mesh>)}
+      <mesh position={[47.45, 3.95, 0]} rotation={[0, 0, -.12]} castShadow><boxGeometry args={[.22, .16, 59]} /><meshStandardMaterial color="#13202c" roughness={.5} /></mesh>
+      <mesh position={[48.1, 3.52, 0]} rotation={[0, 0, -.12]} castShadow><boxGeometry args={[2.1, .12, 59]} /><meshStandardMaterial color="#182c3d" roughness={.46} /></mesh>
       <Crowd />
     </group>
     <group name="stadium-led-scoreboard" position={[14, 0, -15]} rotation={[0, -.42, 0]}>

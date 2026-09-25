@@ -1,5 +1,7 @@
 # Build Log
 
+- Field scale, kickoff formation, goal geometry, and avatar proportion repair (2026-09-25): `npm.cmd run build` passed with TypeScript and Vite (667 modules). Expanded the playable turf to 72×120, aligned local/server scoring at ±56, moved seating beyond the sideboards, corrected the throw-in formation, and normalized GLTF avatar scale to the gameplay unit system.
+
 - Gameplay visual and tutorial UX repair (2026-09-25): `npm.cmd run build` completed with refreshed TypeScript/Vite production assets.
 
 - RoomEnvironment PBR reflection and tutorial layout hotfix (2026-09-25): `npm.cmd run build` passed (667 modules transformed; TypeScript and Vite clean).

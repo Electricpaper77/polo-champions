@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMatch, type PoloRiderEntity } from "../game/GameState";
 
-const toRadar = (x:number, z:number) => ({ x:Math.max(4, Math.min(196, 100 + x / 52 * 92)), y:Math.max(4, Math.min(116, 60 - z / 82 * 52)) });
+const toRadar = (x:number, z:number) => ({ x:Math.max(4, Math.min(196, 100 + x / 72 * 92)), y:Math.max(4, Math.min(116, 60 - z / 120 * 52)) });
 
 /** 30 fps tactical readout, decoupled from render frame rate. */
 export function Radar() {

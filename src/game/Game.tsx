@@ -37,7 +37,7 @@ import { isLowTierDevice, RenderThrottle } from "./LODManager";
 import { replaySystem } from "./ReplaySystem";
 import { SpectatorCamera } from "./SpectatorCamera";
 
-const FIELD_X=52, FIELD_Z=82;
+const FIELD_X=72, FIELD_Z=120;
 const ACTIVE_ARCHETYPE: HorseArchetype = "ALL_ROUNDER";
 export function FoulToast({ active }: { active: boolean }) { return active ? <div className="foul-toast" role="alert">FOUL: LINE OF BALL CROSSING</div> : null; }
 export function playerControlNotice(change: PlayerControlChange) { return change.state === "AI_BACKFILL" ? `Player '${change.playerName}' disconnected. AI taking over.` : `Player '${change.playerName}' reconnected.`; }
@@ -170,8 +170,8 @@ function RealtimeHorse({ ball, input, cameraMode }: { ball: React.RefObject<Rapi
         ball.current.setTranslation({ x: position.current.x + 1.5, y: .15, z: position.current.z }, true);
         ball.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
       }
-      position.current.x = THREE.MathUtils.clamp(position.current.x, -24, 24);
-      position.current.z = THREE.MathUtils.clamp(position.current.z, -39, 39);
+      position.current.x = THREE.MathUtils.clamp(position.current.x, -32, 32);
+      position.current.z = THREE.MathUtils.clamp(position.current.z, -54, 54);
 
       const store = useMatch.getState();
       const local = store.entities[assignedId];
@@ -336,8 +336,8 @@ function RealtimeBots({ ball, input }: { ball: React.RefObject<RapierRigidBody |
       const entity=next[id],chaser=activePlay&&chasers[entity.team]===id;
       const target=getBotTacticalTarget(entity,ballVector,chasers,activePlay,aiRoles[id]);
       next[id]=advanceBotRider(entity,target,chaser,delta,aiRoles[id]);
-      next[id].position.x=THREE.MathUtils.clamp(next[id].position.x,-24,24);
-      next[id].position.y=THREE.MathUtils.clamp(next[id].position.y,-39,39);
+      next[id].position.x=THREE.MathUtils.clamp(next[id].position.x,-32,32);
+      next[id].position.y=THREE.MathUtils.clamp(next[id].position.y,-54,54);
       strikeCooldowns.current[id]=Math.max(0,(strikeCooldowns.current[id]??0)-delta);
       const toBall={x:ballPosition.x-next[id].position.x,z:ballPosition.z-next[id].position.y};
       const facing={x:Math.sin(next[id].heading),z:Math.cos(next[id].heading)};
