@@ -1,5 +1,7 @@
 # Build Log
 
+- Player progression, match rewards, and store purchase update (2026-09-24): `npm.cmd run build` passed (664 modules transformed; TypeScript and Vite clean).
+
 - Spatial audio, crowd atmosphere, and HUD polish update (2026-09-24): `npm.cmd run build` completed with refreshed TypeScript/Vite production assets.
 
 - Core gameplay physics and camera tuning update (2026-09-24): `npm.cmd run build` completed with TypeScript/Vite output generated successfully.
