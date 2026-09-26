@@ -5,14 +5,15 @@ export const STRIKE_CONTACT_START = .10;
 export const STRIKE_CONTACT_END = .17;
 export const STRIKE_RECOVERY_END = .48;
 export const BASE_BALL_IMPULSE = 14;
+export const BALL_MASS = .13;
 export const MIN_SWING_POWER = .5;
 export const MAX_SWING_POWER = 2;
 /** Turf damping is intentionally strong enough to settle a loose ball without killing a strike. */
-export const BALL_FIELD_DRAG = 0.92;
+export const BALL_FIELD_DRAG = 0.18;
 export const BALL_SURFACE_FRICTION = 0.58;
-export const BALL_BOUNCE_ELASTICITY = 0.32;
+export const BALL_BOUNCE_ELASTICITY = 0.3;
 export const BALL_STOP_SPEED = .08;
-export const BALL_ROLLING_RESISTANCE = 3.2;
+export const BALL_ROLLING_RESISTANCE = 1.5;
 export const BALL_AIR_DRAG = .015;
 export const MALLET_HEAD_RADIUS = .14;
 export const BALL_RADIUS = .44;
@@ -82,13 +83,13 @@ export function getShotImpulse({ aimX, aimY = 0, yaw, backhand, charge, speed, h
   const forwardVelocity = horseVelocity ?? { x: Math.sin(yaw) * speed, y: 0, z: Math.cos(yaw) * speed };
   const normalizedCharge = clamp(charge, 0, 1);
   const powerMultiplier = getSwingPowerMultiplier(normalizedCharge);
-  const horseSpeedBonus = clamp(Math.abs(speed), 0, 18) * .28;
+  const horseSpeedBonus = clamp(Math.abs(speed), 0, 18) * .8;
   const power = BASE_BALL_IMPULSE * powerMultiplier + horseSpeedBonus;
   const loft = Math.max(.5, .65 + normalizedCharge * 4.35 + clamp(aimY, -1, 1));
   return {
-    x: forwardVelocity.x + direction.x * power,
+    x: forwardVelocity.x * .8 + direction.x * power,
     y: (forwardVelocity.y ?? 0) + loft,
-    z: forwardVelocity.z + direction.z * power,
+    z: forwardVelocity.z * .8 + direction.z * power,
     power,
     powerMultiplier,
     horseSpeedBonus,

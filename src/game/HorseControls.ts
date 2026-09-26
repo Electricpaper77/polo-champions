@@ -1,5 +1,5 @@
-export const NORMAL_RIDE_SPEED = 16;
-export const MAX_GALLOP_SPEED = 18.05;
+export const NORMAL_RIDE_SPEED = 12;
+export const MAX_GALLOP_SPEED = 18;
 export const GALLOP_SPEED = MAX_GALLOP_SPEED;
 export const BRAKE_SPEED = 0;
 export const ACCELERATION_TAU = 1.5;
@@ -8,8 +8,9 @@ export const BRAKE_TAU = 0.45;
 export const GALLOP_GAIT_THRESHOLD = MAX_GALLOP_SPEED * .75;
 export const GALLOP_STAMINA_DRAIN = 0.24;
 export const STAMINA_RECOVERY = 0.12;
-export const TURF_DRAG = .08;
-export const TURN_BASE_RATE = 1.5;
+export const HORSE_ACCELERATION = 8;
+export const TURF_DRAG = 4;
+export const TURN_BASE_RATE = Math.PI;
 export const DEV_GOD_MAX_SPEED = 45;
 export const DEV_GOD_ACCELERATION = 100;
 export const DEV_GOD_DRAG = 0;
@@ -60,7 +61,8 @@ export function exponentialAlpha(dt: number, tau: number) {
 
 export function steeringRate(speed: number, agility = 1) {
   const speedRatio = clamp(Math.abs(speed) / MAX_GALLOP_SPEED, 0, 1);
-  return TURN_BASE_RATE * (1 + (1 - speedRatio) * .3) / (1 + .055 * Math.abs(speed)) * agility;
+  const turnPenalty = clamp(1 - speedRatio * .7, .3, 1);
+  return TURN_BASE_RATE * turnPenalty * agility;
 }
 
 export function getTargetSpeed({ throttle, gallop, brake }: HorseMotionInput, archetype: HorseArchetype = "ALL_ROUNDER") {
@@ -116,25 +118,48 @@ export function getSteeringRate(speed: number, archetype: HorseArchetype = "ALL_
 export function integrateHorseMotion(state: HorseMotionState, input: HorseMotionInput & { steer: number }, dt: number, archetype: HorseArchetype = "ALL_ROUNDER"): HorseMotionState {
   const safeDelta = Math.max(0, dt);
   const config = getHorseArchetype(archetype);
-  const currentSpeed = Math.hypot(state.velocity.x, state.velocity.z);
   const devGodMode = godMode();
-  const targetSpeed = getTargetSpeed(input, archetype), maxSpeed = devGodMode ? DEV_GOD_MAX_SPEED : MAX_GALLOP_SPEED * config.topSpeed;
-  const currentForward = { x: Math.sin(state.heading), z: Math.cos(state.heading) };
-  const signedForwardSpeed = state.velocity.x * currentForward.x + state.velocity.z * currentForward.z;
-  const direction = Math.abs(signedForwardSpeed) > .05 ? Math.sign(signedForwardSpeed) : targetSpeed < 0 ? -1 : 1;
-  const yawRate = clamp(input.steer, -1, 1) * steeringRate(currentSpeed, config.agility) * direction;
-  const heading = state.heading + yawRate * safeDelta;
-  const forward = { x: Math.sin(heading), z: Math.cos(heading) };
-  const accelerating = Math.abs(targetSpeed) > currentSpeed && !input.brake;
-  const acceleration = accelerating ? (devGodMode ? DEV_GOD_ACCELERATION : 12 * config.acceleration) * (1 - Math.pow(clamp(currentSpeed / Math.max(maxSpeed, .01), 0, 1), 1.5)) : 0;
-  const braking = input.brake ? 18 : targetSpeed === 0 ? (devGodMode ? DEV_GOD_DRAG : TURF_DRAG) * currentSpeed : 0;
-  const signed = Math.max(0, currentSpeed + (acceleration - braking) * safeDelta);
-  let velocity = { x: forward.x * signed, z: forward.z * signed };
-  const magnitude = Math.hypot(velocity.x, velocity.z);
-  if (magnitude > maxSpeed) {
-    const scale = maxSpeed / magnitude;
-    velocity = { x: velocity.x * scale, z: velocity.z * scale };
+  const maxSpeed = devGodMode ? DEV_GOD_MAX_SPEED : (input.gallop ? MAX_GALLOP_SPEED : NORMAL_RIDE_SPEED) * config.topSpeed;
+  let heading = state.heading;
+  let forward = { x: Math.sin(heading), z: Math.cos(heading) };
+  let velocity = { x: state.velocity.x, z: state.velocity.z };
+  const inputMove = input.brake ? 0 : clamp(input.throttle, -1, 1);
+
+  if (inputMove > 0) {
+    const speed = Math.hypot(velocity.x, velocity.z);
+    const acceleration = (devGodMode ? DEV_GOD_ACCELERATION : HORSE_ACCELERATION * config.acceleration) * (1 - Math.pow(clamp(speed / Math.max(maxSpeed, .01), 0, 1), 1.5));
+    velocity.x += forward.x * acceleration * inputMove * safeDelta;
+    velocity.z += forward.z * acceleration * inputMove * safeDelta;
+  } else if (inputMove < 0) {
+    velocity.x += forward.x * (devGodMode ? -DEV_GOD_ACCELERATION : HORSE_ACCELERATION * inputMove * .65) * safeDelta;
+    velocity.z += forward.z * (devGodMode ? -DEV_GOD_ACCELERATION : HORSE_ACCELERATION * inputMove * .65) * safeDelta;
   }
+
+  let speed = Math.hypot(velocity.x, velocity.z);
+  const speedLimit = inputMove < 0 && !input.brake ? Math.min(4, maxSpeed) : maxSpeed;
+  if (speed > speedLimit) {
+    const scale = speedLimit / speed;
+    velocity = { x: velocity.x * scale, z: velocity.z * scale };
+    speed = speedLimit;
+  }
+
+  if (speed > 0 && !devGodMode) {
+    const activeFriction = inputMove > 0 ? TURF_DRAG * .08 : TURF_DRAG;
+    const drop = speed * activeFriction * safeDelta;
+    const newSpeed = Math.max(speed - drop, 0);
+    velocity = speed > 0 ? { x: velocity.x / speed * newSpeed, z: velocity.z / speed * newSpeed } : { x: 0, z: 0 };
+    speed = newSpeed;
+  }
+
+  if (Math.abs(input.steer) > 0 && speed > .1) {
+    const signedForwardSpeed = velocity.x * forward.x + velocity.z * forward.z;
+    const direction = Math.abs(signedForwardSpeed) > .05 ? Math.sign(signedForwardSpeed) : inputMove < 0 ? -1 : 1;
+    const turnAngle = clamp(input.steer, -1, 1) * steeringRate(speed, config.agility) * direction * safeDelta;
+    heading += turnAngle;
+    forward = { x: Math.sin(heading), z: Math.cos(heading) };
+    velocity = { x: forward.x * speed * direction, z: forward.z * speed * direction };
+  }
+
   return {
     heading,
     velocity,

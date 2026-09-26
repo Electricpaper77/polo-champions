@@ -103,3 +103,5 @@
 
 - Horse/player readability fix (2026-09-25): `npm.cmd run build` passed with TypeScript and Vite (654 modules). Converted the release-test playfield overlay riders from plain dots into directional mounted horse/player markers with team color, jersey numbering, and upright team tags so horses and players are readable during live play while the 3D scene is still guarded by the QA overlay.
 
+- Core gameplay physics loop integration (2026-09-25): `npm.cmd run build` passed with TypeScript and Vite (654 modules). Folded the supplied controller tuning into the live horse, mallet, and ball systems: 12 m/s base ride, 18 m/s sprint, playable friction-weighted momentum, velocity-linked turning, stronger horse-speed shot transfer, damped turf bounce, and deterministic rolling drag.
+
