@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import http from "node:http";
 import { FixedTimestepLoop } from "../src/game/GameLoop";
 import { PredictionController, SnapshotBuffer, compressSnapshot, createInitialNetworkSnapshot, decompressSnapshot, predictLocalEntity, type InputCommand, type NetworkSnapshot } from "../src/game/NetworkSync";
 import { ACCELERATION_TAU, MAX_GALLOP_SPEED } from "../src/game/HorseControls";
@@ -16,6 +18,45 @@ class MockSocket implements WebSocketTransport {
   drop() { this.readyState = 3; this.onclose({}); }
   open() { this.readyState = 1; this.onopen({}); }
   serverSend(value: unknown) { this.onmessage({ data: JSON.stringify(value) }); }
+}
+
+async function getJson(port: number, path: string): Promise<{ status: number; body: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const request = http.get({ hostname:"127.0.0.1", port, path }, response => {
+      let data = "";
+      response.on("data", chunk => { data += String(chunk); });
+      response.on("end", () => resolve({ status:response.statusCode ?? 0, body:JSON.parse(data) }));
+    });
+    request.on("error", reject);
+  });
+}
+
+async function startProductionServer(port: number, extraEnv: Record<string, string> = {}) {
+  const child = spawn(process.execPath, ["server/realtime-server.mjs"], {
+    cwd: process.cwd(),
+    env: { ...process.env, NODE_ENV:"production", PORT:String(port), POLO_TEST_PROTOCOL:"1", ...extraEnv },
+    stdio: "pipe",
+  }) as ChildProcessWithoutNullStreams;
+  const stop = async () => {
+    if (child.exitCode !== null) return;
+    child.kill("SIGTERM");
+    await Promise.race([
+      new Promise<void>(resolve => child.once("exit", () => resolve())),
+      new Promise<void>(resolve => setTimeout(resolve, 2_500)),
+    ]);
+    if (child.exitCode === null) child.kill("SIGKILL");
+  };
+  const deadline = Date.now() + 6_000;
+  while (Date.now() < deadline) {
+    try {
+      await getJson(port, "/api/health");
+      return { child, stop };
+    } catch {
+      await new Promise(resolve => setTimeout(resolve, 150));
+    }
+  }
+  await stop();
+  throw new Error(`Production server on ${port} did not become healthy`);
 }
 
 const command = (sequence: number, throttle = 1): InputCommand => ({ sequence, clientTime: 1_000 + sequence, input: { throttle, steer: .25, gallop: true, brake: false, strike: false, power: false, backhand: false, aimX: 0 } });
@@ -109,6 +150,82 @@ test("invalid websocket configuration fails before claiming connection", async (
   await expect(manager.connect()).rejects.toThrow("Realtime server URL must start with ws:// or wss://");
   expect(attempted).toBe(false);
   expect(states).toEqual(["OFFLINE:Realtime server URL must start with ws:// or wss://"]);
+});
+
+test("production realtime server requires origins, rejects oversized messages, and disables test control", async () => {
+  test.setTimeout(20_000);
+  const missing = await startProductionServer(18081);
+  try {
+    const ready = await getJson(18081, "/api/ready");
+    expect(ready.status).toBe(503);
+    expect(ready.body).toMatchObject({ status:"misconfigured", testProtocol:false, originPolicy:"required-missing" });
+  } finally {
+    await missing.stop();
+  }
+
+  const allowedOrigin = "http://127.0.0.1:4173";
+  const server = await startProductionServer(18082, { WS_ALLOWED_ORIGINS:allowedOrigin, MAX_WS_MESSAGE_BYTES:"512" });
+  const { WebSocket: NodeWebSocket } = await import("ws");
+  try {
+    const ready = await getJson(18082, "/api/ready");
+    expect(ready.status).toBe(200);
+    expect(ready.body).toMatchObject({ status:"ready", testProtocol:false, originPolicy:"restricted" });
+
+    await expect(new Promise((resolve, reject) => {
+      const blocked = new NodeWebSocket("ws://127.0.0.1:18082", { origin:"https://attacker.example" });
+      blocked.on("open", () => reject(new Error("Disallowed origin opened")));
+      blocked.on("unexpected-response", (_request, response) => resolve(response.statusCode));
+      blocked.on("error", () => resolve(403));
+    })).resolves.toBe(403);
+
+    await expect(new Promise<number>((resolve, reject) => {
+      const socket = new NodeWebSocket("ws://127.0.0.1:18082", { origin:allowedOrigin });
+      socket.on("open", () => socket.send("x".repeat(700)));
+      socket.on("close", code => resolve(code));
+      socket.on("error", reject);
+    })).resolves.toBe(1009);
+
+    const result = await new Promise<{ phase:string; scoreBlue:number }>((resolve, reject) => {
+      const host = new NodeWebSocket("ws://127.0.0.1:18082", { origin:allowedOrigin });
+      const guest = new NodeWebSocket("ws://127.0.0.1:18082", { origin:allowedOrigin });
+      const timeout = setTimeout(() => reject(new Error("Production room verification timed out")), 8_000);
+      let roomCode = "", guestOpen = false, matchId = "";
+      const snapshots: unknown[][] = [];
+      const send = (socket: InstanceType<typeof NodeWebSocket>, message: unknown) => socket.readyState === NodeWebSocket.OPEN && socket.send(JSON.stringify(message));
+      const joinGuest = () => { if (roomCode && guestOpen) send(guest, { type:"JOIN_ROOM", payload:{ roomCode, playerName:"PROD_GUEST" } }); };
+      const finish = (phase:string, scoreBlue:number) => {
+        clearTimeout(timeout);
+        host.close();
+        guest.close();
+        resolve({ phase, scoreBlue });
+      };
+      host.on("open", () => send(host, { type:"CREATE_ROOM", payload:{ playerName:"PROD_HOST" } }));
+      guest.on("open", () => { guestOpen = true; joinGuest(); });
+      host.on("error", reject);
+      guest.on("error", reject);
+      host.on("message", data => {
+        const message = JSON.parse(String(data));
+        if (message.type === "ROOM_CONFIRMED") { roomCode = message.payload.code; joinGuest(); }
+        if (message.type === "ROOM_STATE" && message.payload.players.length === 2) send(host, { type:"SET_READY", payload:{ roomCode, ready:true } });
+        if (message.type === "MATCH_START") {
+          matchId = message.payload.matchId;
+          send(host, { type:"TEST_CONTROL", payload:{ matchId, command:"FORCE_GOAL", team:"blue" } });
+        }
+        if (message.type === "STATE_SNAPSHOT") {
+          snapshots.push(message.payload);
+          if (snapshots.length >= 8) finish(String(message.payload[8]), Number(message.payload[5].blue));
+        }
+      });
+      guest.on("message", data => {
+        const message = JSON.parse(String(data));
+        if (message.type === "ROOM_CONFIRMED") send(guest, { type:"SET_READY", payload:{ roomCode, ready:true } });
+      });
+    });
+    expect(result.phase).toBe("WAITING");
+    expect(result.scoreBlue).toBe(0);
+  } finally {
+    await server.stop();
+  }
 });
 
 test("unexpected disconnect reconnects with backoff and restores the queued player", async () => {

@@ -1,11 +1,24 @@
 services:
   - type: web
-    name: polo-champions-backend
+    name: polo-champions-realtime-staging
     runtime: docker
     region: oregon
     plan: free
     dockerfilePath: ./Dockerfile
     dockerContext: .
+    healthCheckPath: /api/health
     envVars:
       - key: PORT
         value: "8080"
+      - key: NODE_ENV
+        value: production
+      - key: WS_ALLOWED_ORIGINS
+        sync: false
+      - key: MAX_CONNECTIONS
+        value: "200"
+      - key: MAX_ACTIVE_ROOMS
+        value: "100"
+      - key: MAX_PENDING_LOBBIES
+        value: "100"
+      - key: MAX_WS_MESSAGE_BYTES
+        value: "8192"

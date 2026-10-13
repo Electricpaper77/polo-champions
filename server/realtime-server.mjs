@@ -14,6 +14,11 @@ import {
 const PORT = Number(process.env.PORT ?? 8080);
 const TEST_PROTOCOL = process.env.NODE_ENV !== "production" && process.env.POLO_TEST_PROTOCOL === "1";
 const ALLOWED_ORIGINS = new Set(String(process.env.WS_ALLOWED_ORIGINS ?? process.env.ALLOWED_ORIGINS ?? "").split(",").map(origin => origin.trim()).filter(Boolean));
+const MAX_WS_MESSAGE_BYTES = Number(process.env.MAX_WS_MESSAGE_BYTES ?? 8_192);
+const MAX_CONNECTIONS = Number(process.env.MAX_CONNECTIONS ?? 200);
+const MAX_ACTIVE_ROOMS = Number(process.env.MAX_ACTIVE_ROOMS ?? 100);
+const MAX_PENDING_LOBBIES = Number(process.env.MAX_PENDING_LOBBIES ?? 100);
+const CHAT_COOLDOWN_MS = Number(process.env.CHAT_COOLDOWN_MS ?? 500);
 const SIMULATION_HZ = 60;
 const NETWORK_HZ = 20;
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -53,6 +58,7 @@ const localHostnames = new Set(["localhost", "127.0.0.1", "::1"]);
 const isOriginAllowed = origin => {
   if (!origin) return ALLOWED_ORIGINS.size === 0;
   if (ALLOWED_ORIGINS.has(origin)) return true;
+  if (process.env.NODE_ENV === "production") return false;
   if (ALLOWED_ORIGINS.size > 0) return false;
   try {
     const url = new URL(origin);
@@ -177,7 +183,8 @@ const rooms = new Map();
 const roomLobbies = new Map();
 const queues = new Map(Object.keys(MATCH_TYPES).map(matchType => [matchType, []]));
 const leaderboard = new Map();
-const broadcastLeaderboard = () => { const payload=[...leaderboard.entries()].map(([username,elo])=>({username,elo})).sort((a,b)=>b.elo-a.elo).slice(0,50); for(const socket of wss.clients) send(socket,{type:"LEADERBOARD",payload}); };
+let draining = false;
+const broadcastLeaderboard = () => { if (draining) return; const payload=[...leaderboard.entries()].map(([username,elo])=>({username,elo})).sort((a,b)=>b.elo-a.elo).slice(0,50); for(const socket of wss.clients) send(socket,{type:"LEADERBOARD",payload}); };
 
 function send(socket, message) {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -563,15 +570,17 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (req.method === "GET" && req.url === "/api/ready") {
-    res.writeHead(200, probeHeaders);
+    const missingOrigins = process.env.NODE_ENV === "production" && ALLOWED_ORIGINS.size === 0;
+    const status = draining ? "draining" : missingOrigins ? "misconfigured" : "ready";
+    res.writeHead(status === "ready" ? 200 : 503, probeHeaders);
     res.end(JSON.stringify({
-      status: "ready",
+      status,
       uptimeSeconds: Math.round(process.uptime()),
       rooms: rooms.size,
       lobbies: roomLobbies.size,
       clients: wss?.clients?.size ?? 0,
       testProtocol: TEST_PROTOCOL,
-      originPolicy: ALLOWED_ORIGINS.size ? "restricted" : "local-dev",
+      originPolicy: ALLOWED_ORIGINS.size ? "restricted" : missingOrigins ? "required-missing" : "local-dev",
     }));
     return;
   }
@@ -587,7 +596,9 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({
   server,
   verifyClient: ({ origin }, done) => {
-    if (isOriginAllowed(origin)) done(true);
+    if (draining) done(false, 503, "Server is draining");
+    else if (wss?.clients?.size >= MAX_CONNECTIONS) done(false, 503, "Server is full");
+    else if (isOriginAllowed(origin)) done(true);
     else done(false, 403, "Origin not allowed");
   },
 });
@@ -597,11 +608,19 @@ console.log('Realtime server running on port ' + PORT);
 });
 wss.on("connection", socket => {
   socket.isAlive = true;
+  socket.lastChatAt = 0;
   socket.on("pong", () => { socket.isAlive = true; });
   socket.on("message", data => {
+    const messageBytes = typeof data === "string" ? Buffer.byteLength(data) : data.byteLength ?? 0;
+    if (messageBytes > MAX_WS_MESSAGE_BYTES) {
+      socket.close(1009, "Message too large");
+      return;
+    }
     let message;
     try { message = JSON.parse(String(data)); } catch { return send(socket, { type: "ERROR", payload: { message: "Malformed message" } }); }
+    if (!message || typeof message.type !== "string") return send(socket, { type:"ERROR", payload:{ message:"Invalid message type" } });
     if (message.type === "CREATE_ROOM") {
+      if (roomLobbies.size >= MAX_PENDING_LOBBIES || rooms.size >= MAX_ACTIVE_ROOMS) return send(socket, { type:"ERROR", payload:{ message:"Server room capacity reached" } });
       const existing = findLobbyForSocket(socket);
       if (existing) {
         existing.player.connected = true;
@@ -649,6 +668,7 @@ wss.on("connection", socket => {
       broadcastRoom(lobby);
       maybeStartPrivateRoom(lobby);
     } else if (message.type === "JOIN_QUEUE") {
+      if (rooms.size >= MAX_ACTIVE_ROOMS) return send(socket, { type:"ERROR", payload:{ message:"Server room capacity reached" } });
       const requestedType = String(message.payload?.matchType ?? DEFAULT_MATCH_TYPE);
       const matchType = Object.hasOwn(MATCH_TYPES, requestedType) ? requestedType : DEFAULT_MATCH_TYPE;
       const queue = queues.get(matchType);
@@ -687,6 +707,9 @@ wss.on("connection", socket => {
       send(socket, { type: "PONG", payload: { clientTime: Number(message.payload?.clientTime), serverTime: Date.now() } });
     } else if (message.type === "CHAT") {
       const room = rooms.get(message.payload?.matchId), entityId = room?.clients.get(socket), slot = entityId && room?.slots.get(entityId), text = String(message.payload?.message ?? "").trim().slice(0, 160);
+      const now = Date.now();
+      if (now - socket.lastChatAt < CHAT_COOLDOWN_MS) return;
+      socket.lastChatAt = now;
       if (room && slot && text) broadcast(room, { type: "CHAT", payload: { sender: slot.playerName, message: text, timestamp: Date.now() } });
     } else if (message.type === "SHOT_ATTEMPT") {
       const room = rooms.get(message.payload?.matchId), entityId = room?.clients.get(socket), entity = room?.state.entities.find(value => value.id === entityId);
@@ -724,9 +747,9 @@ const heartbeat = setInterval(() => {
   }
 }, HEARTBEAT_INTERVAL_MS);
 wss.on("close", () => clearInterval(heartbeat));
-setInterval(broadcastLeaderboard, 15_000);
+const leaderboardTimer = setInterval(broadcastLeaderboard, 15_000);
 
-setInterval(() => {
+const simulationTimer = setInterval(() => {
   const delta = 1 / SIMULATION_HZ;
   const now = Date.now();
   for (const [code, lobby] of roomLobbies) {
@@ -805,3 +828,18 @@ setInterval(() => {
 }, 1000 / SIMULATION_HZ);
 
 console.log(`Polo Champions realtime server listening on ws://0.0.0.0:${PORT}`);
+
+function shutdown(signal) {
+  if (draining) return;
+  draining = true;
+  console.log(`Polo Champions realtime server shutting down after ${signal}`);
+  clearInterval(heartbeat);
+  clearInterval(leaderboardTimer);
+  clearInterval(simulationTimer);
+  for (const socket of wss.clients) socket.close(1012, "Server restart");
+  wss.close(() => server.close(() => process.exit(0)));
+  setTimeout(() => process.exit(0), 8_000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
