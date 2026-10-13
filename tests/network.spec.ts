@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { FixedTimestepLoop } from "../src/game/GameLoop";
 import { PredictionController, SnapshotBuffer, compressSnapshot, createInitialNetworkSnapshot, decompressSnapshot, predictLocalEntity, type InputCommand, type NetworkSnapshot } from "../src/game/NetworkSync";
 import { ACCELERATION_TAU, MAX_GALLOP_SPEED } from "../src/game/HorseControls";
-import { NetworkManager, reconnectDelay, resolveWebSocketUrl, type WebSocketTransport } from "../src/services/NetworkManager";
+import { NetworkManager, reconnectDelay, resolveWebSocketUrl, webSocketConfigError, type WebSocketTransport } from "../src/services/NetworkManager";
 
 class MockSocket implements WebSocketTransport {
   readyState = 0;
@@ -90,9 +90,25 @@ test("room-code protocol waits for server confirmation and publishes lobby state
 test("websocket environment routing falls back locally and honors production configuration", () => {
   expect(resolveWebSocketUrl()).toBe("ws://localhost:8080");
   expect(resolveWebSocketUrl("  wss://polo-realtime.example.com/socket  ")).toBe("wss://polo-realtime.example.com/socket");
+  expect(webSocketConfigError("wss://polo-realtime.example.com/socket", "https:")).toBeNull();
+  expect(webSocketConfigError("ws://localhost:8080", "https:")).toBe("Secure pages require a wss:// realtime server");
+  expect(webSocketConfigError("https://example.com", "https:")).toBe("Realtime server URL must start with ws:// or wss://");
   expect(reconnectDelay(1, 100, 1_000)).toBe(100);
   expect(reconnectDelay(2, 100, 1_000)).toBe(200);
   expect(reconnectDelay(8, 100, 1_000)).toBe(1_000);
+});
+
+test("invalid websocket configuration fails before claiming connection", async () => {
+  let attempted = false;
+  const manager = new NetworkManager("https://not-a-websocket.example.com", () => {
+    attempted = true;
+    return new MockSocket();
+  });
+  const states: string[] = [];
+  manager.on("status", status => states.push(`${status.state}:${status.detail}`));
+  await expect(manager.connect()).rejects.toThrow("Realtime server URL must start with ws:// or wss://");
+  expect(attempted).toBe(false);
+  expect(states).toEqual(["OFFLINE:Realtime server URL must start with ws:// or wss://"]);
 });
 
 test("unexpected disconnect reconnects with backoff and restores the queued player", async () => {
@@ -305,6 +321,58 @@ test("live private room replicates both player inputs from authoritative snapsho
   expect(result.snapshotHz).toBeGreaterThan(12);
   expect(result.snapshotHz).toBeLessThan(28);
   expect(result.syncError).toBeLessThan(.001);
+});
+
+test("realtime server exposes production health and readiness checks", async ({ page }) => {
+  await page.goto("/");
+  const checks = await page.evaluate(async () => {
+    const [health, ready] = await Promise.all([
+      fetch("http://127.0.0.1:8080/api/health").then(response => response.json()),
+      fetch("http://127.0.0.1:8080/api/ready").then(response => response.json()),
+    ]);
+    return { health, ready };
+  });
+  expect(checks.health).toMatchObject({ status:"ok", matchEngine:"active" });
+  expect(checks.ready).toMatchObject({ status:"ready", testProtocol:true });
+  expect(checks.ready).toHaveProperty("clients");
+  expect(checks.ready).toHaveProperty("originPolicy");
+});
+
+test("match chat is server-confirmed, trimmed, and rendered as literal text", async ({ page }) => {
+  await page.goto("/");
+  const result = await page.evaluate(() => new Promise<{ message:string; sender:string }>((resolve, reject) => {
+    const host = new WebSocket("ws://127.0.0.1:8080");
+    const guest = new WebSocket("ws://127.0.0.1:8080");
+    let roomCode = "", guestOpen = false, matchId = "";
+    const timeout = window.setTimeout(() => { host.close(); guest.close(); reject(new Error("Chat verification timed out")); }, 7_000);
+    const send = (socket:WebSocket, message:unknown) => socket.send(JSON.stringify(message));
+    const joinGuest = () => { if (roomCode && guestOpen) send(guest, { type:"JOIN_ROOM", payload:{ roomCode, playerName:"CHAT_GUEST" } }); };
+    host.onopen = () => send(host, { type:"CREATE_ROOM", payload:{ playerName:"CHAT_HOST" } });
+    guest.onopen = () => { guestOpen = true; joinGuest(); };
+    host.onerror = guest.onerror = () => { window.clearTimeout(timeout); reject(new Error("Realtime socket failed")); };
+    host.onmessage = event => {
+      const message = JSON.parse(String(event.data));
+      if (message.type === "ROOM_CONFIRMED") { roomCode = message.payload.code; joinGuest(); }
+      if (message.type === "ROOM_STATE" && message.payload.players.length === 2) send(host, { type:"SET_READY", payload:{ roomCode, ready:true } });
+      if (message.type === "MATCH_START") {
+        matchId = message.payload.matchId;
+        send(host, { type:"CHAT", payload:{ matchId, message:"  <img src=x onerror=alert(1)> ".repeat(8) } });
+      }
+    };
+    guest.onmessage = event => {
+      const message = JSON.parse(String(event.data));
+      if (message.type === "ROOM_CONFIRMED") send(guest, { type:"SET_READY", payload:{ roomCode, ready:true } });
+      if (message.type === "CHAT") {
+        window.clearTimeout(timeout);
+        host.close();
+        guest.close();
+        resolve(message.payload);
+      }
+    };
+  }));
+  expect(result.sender).toBe("CHAT_HOST");
+  expect(result.message.length).toBeLessThanOrEqual(160);
+  expect(result.message).toContain("<img src=x onerror=alert(1)>");
 });
 
 test("authoritative match lifecycle scores once, rejects spoofing, completes, reconnects, and rematches", async ({ page }) => {

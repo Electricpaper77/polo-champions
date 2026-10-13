@@ -13,6 +13,7 @@ export function LobbyModal({ onClose, onLaunch }: { onClose: () => void; onLaunc
   const [ping, setPing] = useState(0);
   const [connection, setConnection] = useState("CONNECTING");
   const [error, setError] = useState("");
+  const [copyStatus, setCopyStatus] = useState("");
   const playerName = useMemo(() => `POLO_${team === "ROYAL GUARD" ? "BLUE" : "RED"}`, [team]);
 
   useEffect(() => {
@@ -47,6 +48,16 @@ export function LobbyModal({ onClose, onLaunch }: { onClose: () => void; onLaunc
     setReady(next);
     if (!networkManager.setRoomReady(room.code, next)) setError("Realtime server is not connected yet");
   };
+  const copyRoomCode = async () => {
+    if (!room.code) return;
+    try {
+      await navigator.clipboard.writeText(room.code);
+      setCopyStatus("ROOM CODE COPIED");
+    } catch {
+      setCopyStatus("COPY UNAVAILABLE");
+    }
+    window.setTimeout(() => setCopyStatus(""), 2_000);
+  };
 
   return <section className="match-over lobby-modal" role="dialog" aria-label="Match room lobby">
     <small>PRIVATE ROOM · {connection} · {ping || "--"} MS</small>
@@ -63,7 +74,9 @@ export function LobbyModal({ onClose, onLaunch }: { onClose: () => void; onLaunc
     <div className="lobby-teams">
       <button onClick={createRoom}>CREATE ROOM</button>
       <button onClick={joinRoom}>JOIN ROOM</button>
+      <button disabled={!room.code} onClick={copyRoomCode}>COPY CODE</button>
     </div>
+    {copyStatus && <em className="lobby-starting" role="status">{copyStatus}</em>}
     <div className="lobby-slots">
       {Array.from({ length: room.capacity }, (_, index) => {
         const player = room.players[index];

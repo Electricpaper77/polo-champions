@@ -65,6 +65,13 @@ export function resolveWebSocketUrl(configured?: string): string {
   return configured?.trim() || "ws://localhost:8080";
 }
 
+export function webSocketConfigError(url: string, pageProtocol = typeof window !== "undefined" ? window.location.protocol : ""): string | null {
+  if (!url.trim()) return "Realtime server URL is not configured";
+  if (!/^wss?:\/\//i.test(url)) return "Realtime server URL must start with ws:// or wss://";
+  if (pageProtocol === "https:" && url.startsWith("ws://")) return "Secure pages require a wss:// realtime server";
+  return null;
+}
+
 export function reconnectDelay(attempt: number, baseDelayMs = 500, maxDelayMs = 10_000): number {
   return Math.min(maxDelayMs, baseDelayMs * 2 ** Math.max(0, attempt - 1));
 }
@@ -72,9 +79,10 @@ export function reconnectDelay(attempt: number, baseDelayMs = 500, maxDelayMs = 
 function defaultUrl(): string {
   const configured = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_WEBSOCKET_URL;
   if (configured?.trim()) return resolveWebSocketUrl(configured);
-  return typeof window !== "undefined" && !["localhost", "127.0.0.1"].includes(window.location.hostname)
-    ? "wss://polo-champions.onrender.com"
-    : "ws://localhost:8080";
+  if (typeof window !== "undefined" && !["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    return `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
+  }
+  return "ws://localhost:8080";
 }
 
 function defaultFactory(url: string): WebSocketTransport {
@@ -120,6 +128,11 @@ export class NetworkManager {
     this.shouldReconnect = true;
     if (this.socket?.readyState === 1) return Promise.resolve();
     if (this.connectPromise) return this.connectPromise;
+    const configError = webSocketConfigError(this.url);
+    if (configError) {
+      this.emit("status", { state: "OFFLINE", detail: configError });
+      return Promise.reject(new Error(configError));
+    }
     this.clearReconnectTimer();
     this.emit("status", { state: "CONNECTING", detail: this.reconnectAttempt ? `Reconnect attempt ${this.reconnectAttempt}` : undefined });
     const connecting = new Promise<void>((resolve, reject) => {

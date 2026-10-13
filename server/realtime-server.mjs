@@ -12,7 +12,8 @@ import {
 } from "./MatchManager.mjs";
 
 const PORT = Number(process.env.PORT ?? 8080);
-const TEST_PROTOCOL = process.env.POLO_TEST_PROTOCOL === "1";
+const TEST_PROTOCOL = process.env.NODE_ENV !== "production" && process.env.POLO_TEST_PROTOCOL === "1";
+const ALLOWED_ORIGINS = new Set(String(process.env.WS_ALLOWED_ORIGINS ?? process.env.ALLOWED_ORIGINS ?? "").split(",").map(origin => origin.trim()).filter(Boolean));
 const SIMULATION_HZ = 60;
 const NETWORK_HZ = 20;
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -48,6 +49,18 @@ const SPRINTER_IDS = new Set(["blue_2", "red_1", "red_3"]);
 const STRIKER_IDS = new Set(["blue_2", "blue_3", "red_1", "red_2", "red_3"]);
 const MIN_RIDER_SEPARATION = 2.6;
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
+const localHostnames = new Set(["localhost", "127.0.0.1", "::1"]);
+const isOriginAllowed = origin => {
+  if (!origin) return ALLOWED_ORIGINS.size === 0;
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  if (ALLOWED_ORIGINS.size > 0) return false;
+  try {
+    const url = new URL(origin);
+    return localHostnames.has(url.hostname);
+  } catch {
+    return false;
+  }
+};
 const lerp = (from, to, amount) => from + (to - from) * amount;
 const exponentialAlpha = (dt, tau) => dt <= 0 ? 0 : 1 - Math.exp(-dt / Math.max(tau, Number.EPSILON));
 const steeringRate = (speed, agility = 1) => {
@@ -543,9 +556,23 @@ function testControl(room, message) {
 }
 
 const server = http.createServer((req, res) => {
+  const probeHeaders = { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" };
   if (req.method === "GET" && req.url === "/api/health") {
-    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    res.writeHead(200, probeHeaders);
     res.end(JSON.stringify({ status: "ok", version: "1.0.0", matchEngine: "active" }));
+    return;
+  }
+  if (req.method === "GET" && req.url === "/api/ready") {
+    res.writeHead(200, probeHeaders);
+    res.end(JSON.stringify({
+      status: "ready",
+      uptimeSeconds: Math.round(process.uptime()),
+      rooms: rooms.size,
+      lobbies: roomLobbies.size,
+      clients: wss?.clients?.size ?? 0,
+      testProtocol: TEST_PROTOCOL,
+      originPolicy: ALLOWED_ORIGINS.size ? "restricted" : "local-dev",
+    }));
     return;
   }
   if (req.method === "GET" && req.url === "/") {
@@ -557,7 +584,13 @@ const server = http.createServer((req, res) => {
   res.end();
 });
 
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({
+  server,
+  verifyClient: ({ origin }, done) => {
+    if (isOriginAllowed(origin)) done(true);
+    else done(false, 403, "Origin not allowed");
+  },
+});
 
 server.listen(PORT, '0.0.0.0', () => {
 console.log('Realtime server running on port ' + PORT);
