@@ -307,6 +307,174 @@ test("live private room replicates both player inputs from authoritative snapsho
   expect(result.syncError).toBeLessThan(.001);
 });
 
+test("authoritative match lifecycle scores once, rejects spoofing, completes, reconnects, and rematches", async ({ page }) => {
+  test.setTimeout(35_000);
+  await page.goto("/");
+  const result = await page.evaluate(() => new Promise<{
+    hostId:string;
+    guestId:string;
+    forehandBallSpeed:number;
+    backhandBallSpeed:number;
+    spoofedScore:number;
+    scoredBlue:number;
+    duplicateBlue:number;
+    guestScoreBlue:number;
+    completePhase:string;
+    guestCompletePhase:string;
+    rematchPhase:string;
+    rematchSeconds:number;
+    reconnectedId:string;
+    snapshotHz:number;
+    ballDivergence:number;
+    goalPropagationMs:number;
+    clockSkewSeconds:number;
+    reconnectRecoveryMs:number;
+  }>((resolve, reject) => {
+    const sockets: Record<string, WebSocket | null> = { host:null, guest:null, reconnect:null };
+    const snapshots = { host: [] as unknown[][], guest: [] as unknown[][], reconnect: [] as unknown[][] };
+    const starts: Record<string, { id:string; matchId:string; token:string }> = {};
+    let roomCode = "", guestOpen = false, goalSentAt = 0, disconnectAt = 0, reconnectRecoveryMs = 0;
+    let forehandBallSpeed = 0, backhandBallSpeed = 0, spoofedScore = 0, scoredBlue = 0, duplicateBlue = 0, guestScoreBlue = 0, completePhase = "", guestCompletePhase = "", rematchPhase = "", rematchSeconds = 0, reconnectedId = "";
+    const timer = window.setTimeout(() => reject(new Error("Lifecycle verification timed out")), 18_000);
+    const send = (socket:WebSocket | null, message:unknown) => socket?.readyState === WebSocket.OPEN && socket.send(JSON.stringify(message));
+    const snapSpeed = (snapshot:unknown[]) => Math.hypot(Number((snapshot[3] as unknown[])[2]), Number((snapshot[3] as unknown[])[3]));
+    const rider = (snapshot:unknown[], id:string) => (snapshot[2] as unknown[][]).find(entity => entity[0] === id);
+    const latest = (key:keyof typeof snapshots) => snapshots[key].at(-1);
+    const nextSnapshot = (key:keyof typeof snapshots, predicate:(snapshot:unknown[])=>boolean, timeoutMs=5_000) => new Promise<unknown[]>((resolveNext, rejectNext) => {
+      const startedAt = Date.now();
+      const interval = window.setInterval(() => {
+        const match = snapshots[key].find(predicate);
+        if (match) { window.clearInterval(interval); resolveNext(match); }
+        else if (Date.now() - startedAt > timeoutMs) { window.clearInterval(interval); rejectNext(new Error(`Timed out waiting for ${key} snapshot`)); }
+      }, 20);
+    });
+    const joinGuest = () => { if (roomCode && guestOpen) send(sockets.guest, { type:"JOIN_ROOM", payload:{ roomCode, playerName:"GATE4_GUEST" } }); };
+    const placeBallForStrike = (backhand=false) => {
+      const hostSnap = latest("host")!;
+      const entity = rider(hostSnap, starts.host.id)!;
+      const x = Number(entity[1]);
+      const z = Number(entity[2]);
+      const heading = Number(entity[5]);
+      const aimX = 0;
+      const progress = .55;
+      const aimedYaw = heading + aimX * .38;
+      const forward = { x:Math.sin(aimedYaw), z:Math.cos(aimedYaw) };
+      const right = { x:Math.cos(aimedYaw), z:-Math.sin(aimedYaw) };
+      const side = backhand ? -1 : 1;
+      const localForward = -.4 + (3.7 + .4) * progress;
+      const localSide = side * (2.05 - Math.sin(Math.PI * progress) * 1.15);
+      send(sockets.host, { type:"TEST_CONTROL", payload:{ matchId:starts.host.matchId, command:"PLACE_BALL", x:x + forward.x * localForward + right.x * localSide, z:z + forward.z * localForward + right.z * localSide } });
+    };
+    const strike = async (backhand=false) => {
+      const sequenceBase = backhand ? 20 : 10;
+      placeBallForStrike(backhand);
+      await nextSnapshot("host", snapshot => snapSpeed(snapshot) === 0 && Number(snapshot[0]) > 0);
+      send(sockets.host, { type:"INPUT", payload:{ matchId:starts.host.matchId, entityId:starts.host.id, command:{ sequence:sequenceBase, clientTime:Date.now()-260, reportedPingMs:0, input:{ throttle:0, steer:0, gallop:false, brake:false, strike:!backhand, backhand, power:false, aimX:0, aimY:0 } } } });
+      await new Promise(done => window.setTimeout(done, 80));
+      send(sockets.host, { type:"INPUT", payload:{ matchId:starts.host.matchId, entityId:starts.host.id, command:{ sequence:sequenceBase+1, clientTime:Date.now(), reportedPingMs:0, input:{ throttle:0, steer:0, gallop:false, brake:false, strike:false, backhand:false, power:false, aimX:0, aimY:0 } } } });
+      const moved = await nextSnapshot("guest", snapshot => snapSpeed(snapshot) > 2, 6_000);
+      return snapSpeed(moved);
+    };
+    const finish = async () => {
+      try {
+        await nextSnapshot("host", snapshot => starts.host && starts.guest && Number(snapshot[0]) > 6);
+        send(sockets.guest, { type:"GOAL_SCORED", payload:{ team:"blue", score:{blue:99,red:0}, celebrationMs:1 } });
+        await new Promise(done => window.setTimeout(done, 150));
+        spoofedScore = Number(latest("host")?.[5]?.blue ?? 0);
+        forehandBallSpeed = await strike(false);
+        backhandBallSpeed = await strike(true);
+        send(sockets.host, { type:"TEST_CONTROL", payload:{ matchId:starts.host.matchId, command:"FORCE_GOAL", team:"blue" } });
+        goalSentAt = Date.now();
+        const scoredHost = await nextSnapshot("host", snapshot => Number(snapshot[5]?.blue) === 1 && snapshot[8] === "GOAL_CELEBRATION");
+        const scoredGuest = await nextSnapshot("guest", snapshot => Number(snapshot[5]?.blue) === 1 && snapshot[8] === "GOAL_CELEBRATION");
+        scoredBlue = Number(scoredHost[5].blue);
+        guestScoreBlue = Number(scoredGuest[5].blue);
+        const goalPropagationMs = Date.now() - goalSentAt;
+        send(sockets.host, { type:"TEST_CONTROL", payload:{ matchId:starts.host.matchId, command:"FORCE_GOAL", team:"blue" } });
+        await new Promise(done => window.setTimeout(done, 150));
+        duplicateBlue = Number(latest("host")?.[5]?.blue ?? 0);
+        send(sockets.host, { type:"TEST_CONTROL", payload:{ matchId:starts.host.matchId, command:"COMPLETE_MATCH" } });
+        const completeHost = await nextSnapshot("host", snapshot => snapshot[8] === "COMPLETE");
+        const completeGuest = await nextSnapshot("guest", snapshot => snapshot[8] === "COMPLETE");
+        completePhase = String(completeHost[8]);
+        guestCompletePhase = String(completeGuest[8]);
+        send(sockets.host, { type:"RESET_MATCH", payload:{ matchId:starts.host.matchId } });
+        const rematch = await nextSnapshot("guest", snapshot => snapshot[8] === "WAITING" && Number(snapshot[6]) === 420 && Number(snapshot[5]?.blue) === 0);
+        rematchPhase = String(rematch[8]);
+        rematchSeconds = Number(rematch[6]);
+        disconnectAt = Date.now();
+        sockets.host?.close();
+        sockets.reconnect = new WebSocket("ws://127.0.0.1:8080");
+        sockets.reconnect.onopen = () => send(sockets.reconnect, { type:"RECONNECT", payload:{ matchId:starts.host.matchId, reconnectToken:starts.host.token } });
+        sockets.reconnect.onmessage = event => {
+          const message = JSON.parse(String(event.data));
+          if (message.type === "MATCH_START") {
+            starts.reconnect = { id:message.payload.assignedEntityId, matchId:message.payload.matchId, token:message.payload.reconnectToken };
+            reconnectedId = message.payload.assignedEntityId;
+            reconnectRecoveryMs = Date.now() - disconnectAt;
+          }
+          if (message.type === "STATE_SNAPSHOT") snapshots.reconnect.push(message.payload);
+        };
+        await new Promise<void>((resolveReconnect, rejectReconnect) => {
+          const startedAt = Date.now();
+          const interval = window.setInterval(() => {
+            if (reconnectedId) { window.clearInterval(interval); resolveReconnect(); }
+            else if (Date.now() - startedAt > 5_000) { window.clearInterval(interval); rejectReconnect(new Error("Reconnect timed out")); }
+          }, 20);
+        });
+        const hostTicks = snapshots.guest.map(snapshot => Number(snapshot[0]));
+        const reconnectTicks = new Set(snapshots.reconnect.map(snapshot => Number(snapshot[0])));
+        const commonTick = hostTicks.findLast(tick => reconnectTicks.has(tick));
+        const guestCommon = snapshots.guest.find(snapshot => Number(snapshot[0]) === commonTick);
+        const reconnectCommon = snapshots.reconnect.find(snapshot => Number(snapshot[0]) === commonTick);
+        const ballDivergence = guestCommon && reconnectCommon ? Math.hypot(Number(guestCommon[3][0]) - Number(reconnectCommon[3][0]), Number(guestCommon[3][1]) - Number(reconnectCommon[3][1])) : 0;
+        const intervalMs = (Number(snapshots.guest.at(-1)![1]) - Number(snapshots.guest[0][1])) / Math.max(1, snapshots.guest.length - 1);
+        window.clearTimeout(timer);
+        sockets.guest?.close();
+        sockets.reconnect?.close();
+        resolve({ hostId:starts.host.id, guestId:starts.guest.id, forehandBallSpeed, backhandBallSpeed, spoofedScore, scoredBlue, duplicateBlue, guestScoreBlue, completePhase, guestCompletePhase, rematchPhase, rematchSeconds, reconnectedId, snapshotHz:1000/intervalMs, ballDivergence, goalPropagationMs, clockSkewSeconds:Math.abs(Number(completeHost[6])-Number(completeGuest[6])), reconnectRecoveryMs });
+      } catch (error) { reject(error); }
+    };
+    sockets.host = new WebSocket("ws://127.0.0.1:8080");
+    sockets.guest = new WebSocket("ws://127.0.0.1:8080");
+    sockets.host.onopen = () => send(sockets.host, { type:"CREATE_ROOM", payload:{ playerName:"GATE4_HOST" } });
+    sockets.guest.onopen = () => { guestOpen = true; joinGuest(); };
+    sockets.host.onerror = sockets.guest.onerror = () => reject(new Error("Realtime socket failed"));
+    sockets.host.onmessage = event => {
+      const message = JSON.parse(String(event.data));
+      if (message.type === "ROOM_CONFIRMED") { roomCode = message.payload.code; joinGuest(); }
+      if (message.type === "ROOM_STATE" && message.payload.players.length === 2) send(sockets.host, { type:"SET_READY", payload:{ roomCode, ready:true } });
+      if (message.type === "MATCH_START") { starts.host = { id:message.payload.assignedEntityId, matchId:message.payload.matchId, token:message.payload.reconnectToken }; if (starts.guest) void finish(); }
+      if (message.type === "STATE_SNAPSHOT") snapshots.host.push(message.payload);
+    };
+    sockets.guest.onmessage = event => {
+      const message = JSON.parse(String(event.data));
+      if (message.type === "ROOM_CONFIRMED") send(sockets.guest, { type:"SET_READY", payload:{ roomCode, ready:true } });
+      if (message.type === "MATCH_START") { starts.guest = { id:message.payload.assignedEntityId, matchId:message.payload.matchId, token:message.payload.reconnectToken }; if (starts.host) void finish(); }
+      if (message.type === "STATE_SNAPSHOT") snapshots.guest.push(message.payload);
+    };
+  }));
+  expect(result.hostId).toBe("player");
+  expect(result.guestId).toBe("blue_2");
+  expect(result.forehandBallSpeed).toBeGreaterThan(2);
+  expect(result.backhandBallSpeed).toBeGreaterThan(2);
+  expect(result.spoofedScore).toBe(0);
+  expect(result.scoredBlue).toBe(1);
+  expect(result.guestScoreBlue).toBe(1);
+  expect(result.duplicateBlue).toBe(1);
+  expect(result.completePhase).toBe("COMPLETE");
+  expect(result.guestCompletePhase).toBe("COMPLETE");
+  expect(result.rematchPhase).toBe("WAITING");
+  expect(result.rematchSeconds).toBe(420);
+  expect(result.reconnectedId).toBe("player");
+  expect(result.snapshotHz).toBeGreaterThan(12);
+  expect(result.snapshotHz).toBeLessThan(28);
+  expect(result.ballDivergence).toBeLessThan(.001);
+  expect(result.clockSkewSeconds).toBe(0);
+  expect(result.goalPropagationMs).toBeLessThan(1_000);
+  expect(result.reconnectRecoveryMs).toBeLessThan(5_000);
+});
+
 test("client prediction applies input immediately and reconciliation consumes acknowledgements", () => {
   const initial = createInitialNetworkSnapshot(1_000).entities[0];
   const prediction = new PredictionController(initial);

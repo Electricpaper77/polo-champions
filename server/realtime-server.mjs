@@ -12,6 +12,7 @@ import {
 } from "./MatchManager.mjs";
 
 const PORT = Number(process.env.PORT ?? 8080);
+const TEST_PROTOCOL = process.env.POLO_TEST_PROTOCOL === "1";
 const SIMULATION_HZ = 60;
 const NETWORK_HZ = 20;
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -171,6 +172,10 @@ function send(socket, message) {
 
 function broadcast(room, message) {
   for (const socket of room.clients.keys()) send(socket, message);
+}
+
+function broadcastSnapshot(room) {
+  for (const [socket, entityId] of room.clients) send(socket, { type: "STATE_SNAPSHOT", payload: compress(room.state, room.acks.get(entityId) ?? 0, room.score) });
 }
 
 function roomCode() {
@@ -482,6 +487,61 @@ function resetSimulation(room, resetScore = false) {
   room.botStrikeCooldowns.clear();
 }
 
+function awardGoal(room, team, now = Date.now()) {
+  if (room.goalCelebrationUntil || room.state.phase === "GOAL_CELEBRATION") return false;
+  room.score[team] += 1;
+  room.state.started = false;
+  room.state.phase = "GOAL_CELEBRATION";
+  room.state.ball.velocity = {x:0,z:0};
+  room.state.ball.verticalVelocity = 0;
+  room.goalCelebrationUntil = now + GOAL_CELEBRATION_MS;
+  const payload={ team, score:{...room.score}, celebrationMs:GOAL_CELEBRATION_MS };
+  broadcast(room, { type:"GOAL_VALIDATED", payload });
+  broadcast(room, { type:"GOAL_SCORED", payload });
+  return true;
+}
+
+function testControl(room, message) {
+  if (!TEST_PROTOCOL) return false;
+  const command = message.payload?.command;
+  if (command === "PLACE_BALL") {
+    const x = clamp(Number(message.payload?.x) || 0, -32, 32);
+    const z = clamp(Number(message.payload?.z) || 0, -58, 58);
+    room.state.ball.position = { x, z };
+    room.state.ball.velocity = { x:0, z:0 };
+    room.state.ball.y = BALL_START_Y;
+    room.state.ball.verticalVelocity = 0;
+    room.history.record(room.state, room.state.serverTime);
+    broadcastSnapshot(room);
+    return true;
+  }
+  if (command === "FORCE_GOAL") {
+    const team = message.payload?.team === "red" ? "red" : "blue";
+    awardGoal(room, team);
+    broadcastSnapshot(room);
+    return true;
+  }
+  if (command === "COMPLETE_MATCH") {
+    room.state.seconds = 0;
+    room.state.started = false;
+    room.state.phase = "COMPLETE";
+    room.inputs.clear();
+    room.strikes.clear();
+    broadcastSnapshot(room);
+    return true;
+  }
+  if (command === "SET_SECONDS") {
+    room.state.seconds = Math.max(0, Math.min(MATCH_SECONDS, Number(message.payload?.seconds) || 0));
+    if (room.state.seconds === 0) {
+      room.state.started = false;
+      room.state.phase = "COMPLETE";
+    }
+    broadcastSnapshot(room);
+    return true;
+  }
+  return false;
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/api/health") {
     res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
@@ -581,9 +641,15 @@ wss.on("connection", socket => {
         room.pings.set(entityId, reportedPingMs);
         room.inputs.set(entityId, { ...message.payload.command, reportedPingMs, receivedAt: Date.now() });
       }
+    } else if (message.type === "TEST_CONTROL") {
+      const room = rooms.get(message.payload?.matchId);
+      if (room?.clients.has(socket)) testControl(room, message);
     } else if (message.type === "RESET_MATCH") {
       const room=rooms.get(message.payload?.matchId);
-      if(room?.clients.has(socket))resetSimulation(room,true);
+      if(room?.clients.has(socket)){
+        resetSimulation(room,true);
+        broadcastSnapshot(room);
+      }
     } else if (message.type === "PING") {
       send(socket, { type: "PONG", payload: { clientTime: Number(message.payload?.clientTime), serverTime: Date.now() } });
     } else if (message.type === "CHAT") {
@@ -656,7 +722,7 @@ setInterval(() => {
         room.state.phase = "GOAL_CELEBRATION";
         room.state.entities.forEach(entity => { entity.velocity = {x:0,z:0}; entity.gait = "IDLE"; });
         room.history.record(room.state, now);
-        if (room.state.tick % (SIMULATION_HZ / NETWORK_HZ) === 0) for (const [socket, entityId] of room.clients) send(socket, { type:"STATE_SNAPSHOT", payload:compress(room.state, room.acks.get(entityId) ?? 0, room.score) });
+        if (room.state.tick % (SIMULATION_HZ / NETWORK_HZ) === 0) broadcastSnapshot(room);
         continue;
       }
     }
@@ -696,20 +762,12 @@ setInterval(() => {
     }
     const goalTeam = detectGoalCrossing(previousBall, room.state.ball.position);
     if (goalTeam) {
-      room.score[goalTeam] += 1;
-      room.state.started = false;
-      room.state.phase = "GOAL_CELEBRATION";
-      room.state.ball.velocity = {x:0,z:0};
-      room.state.ball.verticalVelocity = 0;
-      room.goalCelebrationUntil = now + GOAL_CELEBRATION_MS;
-      const payload={ team:goalTeam, score:{...room.score}, celebrationMs:GOAL_CELEBRATION_MS };
-      broadcast(room, { type:"GOAL_VALIDATED", payload });
-      broadcast(room, { type:"GOAL_SCORED", payload });
+      awardGoal(room, goalTeam, now);
     } else if (Math.abs(room.state.ball.position.z) > GOAL_LINE_Z + 2 || Math.abs(room.state.ball.position.x) > 36) {
       resetSimulation(room);
     }
     room.history.record(room.state, now);
-    if (room.state.tick % (SIMULATION_HZ / NETWORK_HZ) === 0) for (const [socket, entityId] of room.clients) send(socket, { type: "STATE_SNAPSHOT", payload: compress(room.state, room.acks.get(entityId) ?? 0, room.score) });
+    if (room.state.tick % (SIMULATION_HZ / NETWORK_HZ) === 0) broadcastSnapshot(room);
   }
 }, 1000 / SIMULATION_HZ);
 
