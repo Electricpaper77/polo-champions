@@ -183,6 +183,7 @@ test("snapshot compression is lossless and interpolation buffers opponents and b
   after.entities[1].velocity = { x: 4, z: 8 };
   after.ball.position = { x: 20, z: 10 };
   expect(decompressSnapshot(compressSnapshot(after))).toEqual(after);
+  expect(decompressSnapshot(compressSnapshot(after))).toMatchObject({ score:{blue:0,red:0}, seconds:420, started:false, phase:"WAITING" });
 
   const buffer = new SnapshotBuffer();
   buffer.push(before);
@@ -191,6 +192,119 @@ test("snapshot compression is lossless and interpolation buffers opponents and b
   expect(sampled.entities[1].position).toEqual({ x: 5, z: 10 });
   expect(sampled.entities[1].velocity).toEqual({ x: 2, z: 4 });
   expect(sampled.ball.position).toEqual({ x: 10, z: 5 });
+});
+
+test("live private room replicates both player inputs from authoritative snapshots", async ({ page }) => {
+  await page.goto("/");
+  const result = await page.evaluate(() => new Promise<{
+    hostId:string;
+    guestId:string;
+    hostSawGuestSpeed:number;
+    guestSawHostSpeed:number;
+    unauthorizedHostSpeed:number;
+    entities:number;
+    scoreBlue:number;
+    seconds:number;
+    snapshotHz:number;
+    syncError:number;
+  }>((resolve, reject) => {
+    const host = new WebSocket("ws://127.0.0.1:8080");
+    const guest = new WebSocket("ws://127.0.0.1:8080");
+    const snapshots = { host: [] as unknown[][], guest: [] as unknown[][] };
+    const starts: Record<string, { id:string; matchId:string }> = {};
+    let roomCode = "";
+    let guestOpen = false;
+    let hostInputSent = false;
+    let guestInputSent = false;
+    let unauthorizedSent = false;
+    let hostInputScheduled = false;
+    const timeout = window.setTimeout(() => { host.close(); guest.close(); reject(new Error("Two-client replication timed out")); }, 10_000);
+    const send = (socket:WebSocket, message:unknown) => socket.send(JSON.stringify(message));
+    const joinGuest = () => { if (roomCode && guestOpen) send(guest, { type:"JOIN_ROOM", payload:{ roomCode, playerName:"GUEST" } }); };
+    const rider = (snapshot:unknown[], id:string) => (snapshot[2] as unknown[][]).find(entity => entity[0] === id);
+    const speedOf = (snapshot:unknown[], id:string) => {
+      const value = rider(snapshot, id);
+      return value ? Math.hypot(Number(value[3]), Number(value[4])) : 0;
+    };
+    const check = () => {
+      if (!starts.host || !starts.guest) return;
+      if (!unauthorizedSent) {
+        unauthorizedSent = true;
+        send(guest, { type:"INPUT", payload:{ matchId:starts.guest.matchId, entityId:starts.host.id, command:{ sequence:1, clientTime:Date.now(), input:{ throttle:1, steer:0, gallop:true, brake:false, strike:false, backhand:false, aimX:0 } } } });
+      }
+      if (!hostInputScheduled && snapshots.guest.length >= 3) {
+        hostInputScheduled = true;
+        window.setTimeout(() => send(host, { type:"INPUT", payload:{ matchId:starts.host.matchId, entityId:starts.host.id, command:{ sequence:1, clientTime:Date.now(), input:{ throttle:1, steer:0, gallop:true, brake:false, strike:false, backhand:false, aimX:0 } } } }), 250);
+      }
+      const guestSawHost = snapshots.guest.find(snapshot => speedOf(snapshot, starts.host.id) > 5);
+      if (guestSawHost && !hostInputSent) hostInputSent = true;
+      if (hostInputSent && !guestInputSent) {
+        guestInputSent = true;
+        send(guest, { type:"INPUT", payload:{ matchId:starts.guest.matchId, entityId:starts.guest.id, command:{ sequence:2, clientTime:Date.now(), input:{ throttle:1, steer:0, gallop:true, brake:false, strike:false, backhand:false, aimX:0 } } } });
+      }
+      const hostSawGuest = snapshots.host.find(snapshot => speedOf(snapshot, starts.guest.id) > 5);
+      if (!guestSawHost || !hostSawGuest || snapshots.host.length < 8 || snapshots.guest.length < 8) return;
+      const hostTicks = snapshots.host.map(snapshot => Number(snapshot[0]));
+      const guestTicks = new Set(snapshots.guest.map(snapshot => Number(snapshot[0])));
+      const commonTick = hostTicks.findLast(tick => guestTicks.has(tick));
+      const hostCommon = snapshots.host.find(snapshot => Number(snapshot[0]) === commonTick);
+      const guestCommon = snapshots.guest.find(snapshot => Number(snapshot[0]) === commonTick);
+      const hostEntity = hostCommon ? rider(hostCommon, starts.host.id) : null;
+      const guestEntity = guestCommon ? rider(guestCommon, starts.host.id) : null;
+      if (!hostEntity || !guestEntity) return;
+      const intervalMs = (Number(snapshots.host.at(-1)![1]) - Number(snapshots.host[0][1])) / Math.max(1, snapshots.host.length - 1);
+      window.clearTimeout(timeout);
+      host.close();
+      guest.close();
+      resolve({
+        hostId:starts.host.id,
+        guestId:starts.guest.id,
+        hostSawGuestSpeed:speedOf(hostSawGuest, starts.guest.id),
+        guestSawHostSpeed:speedOf(guestSawHost, starts.host.id),
+        unauthorizedHostSpeed:speedOf(snapshots.guest[0], starts.host.id),
+        entities:(guestSawHost[2] as unknown[][]).length,
+        scoreBlue:Number(guestSawHost[5].blue),
+        seconds:Number(guestSawHost[6]),
+        snapshotHz:1000 / intervalMs,
+        syncError:Math.hypot(Number(hostEntity[1]) - Number(guestEntity[1]), Number(hostEntity[2]) - Number(guestEntity[2])),
+      });
+    };
+    host.onopen = () => send(host, { type:"CREATE_ROOM", payload:{ playerName:"HOST" } });
+    guest.onopen = () => { guestOpen = true; joinGuest(); };
+    host.onerror = guest.onerror = () => { window.clearTimeout(timeout); reject(new Error("Realtime socket failed")); };
+    host.onmessage = event => {
+      const message = JSON.parse(String(event.data));
+      if (message.type === "ROOM_CONFIRMED") {
+        roomCode = message.payload.code;
+        joinGuest();
+      }
+      if (message.type === "ROOM_STATE" && message.payload.players.length === 2) send(host, { type:"SET_READY", payload:{ roomCode, ready:true } });
+      if (message.type === "MATCH_START") {
+        starts.host = { id:message.payload.assignedEntityId, matchId:message.payload.matchId };
+        check();
+      }
+      if (message.type === "STATE_SNAPSHOT") { snapshots.host.push(message.payload); check(); }
+    };
+    guest.onmessage = event => {
+      const message = JSON.parse(String(event.data));
+      if (message.type === "ROOM_CONFIRMED") send(guest, { type:"SET_READY", payload:{ roomCode, ready:true } });
+      if (message.type === "MATCH_START") {
+        starts.guest = { id:message.payload.assignedEntityId, matchId:message.payload.matchId };
+        check();
+      }
+      if (message.type === "STATE_SNAPSHOT") { snapshots.guest.push(message.payload); check(); }
+    };
+  }));
+  expect(result.entities).toBe(12);
+  expect(result.hostId).not.toBe(result.guestId);
+  expect(result.unauthorizedHostSpeed).toBeLessThan(.001);
+  expect(result.guestSawHostSpeed).toBeGreaterThan(5);
+  expect(result.hostSawGuestSpeed).toBeGreaterThan(5);
+  expect(result.scoreBlue).toBe(0);
+  expect(result.seconds).toBeLessThanOrEqual(420);
+  expect(result.snapshotHz).toBeGreaterThan(12);
+  expect(result.snapshotHz).toBeLessThan(28);
+  expect(result.syncError).toBeLessThan(.001);
 });
 
 test("client prediction applies input immediately and reconciliation consumes acknowledgements", () => {

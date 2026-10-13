@@ -1,14 +1,15 @@
 import type { Input } from "./InputManager";
 import { getGait, integrateHorseMotion, type Gait, type HorseArchetype } from "./HorseControls";
-import { initializeMatchEntities, type PoloRiderEntity } from "./GameState";
+import { initializeMatchEntities, type MatchScore, type PoloRiderEntity } from "./GameState";
 
 export type NetworkVector = { x: number; z: number };
 export type NetworkEntityState = { id: PoloRiderEntity["id"]; position: NetworkVector; velocity: NetworkVector; heading: number; gait: Gait };
 export type NetworkBallState = { position: NetworkVector; velocity: NetworkVector; y: number };
-export type NetworkSnapshot = { tick: number; serverTime: number; ackSequence: number; entities: NetworkEntityState[]; ball: NetworkBallState };
+export type NetworkMatchPhase = "WAITING" | "LIVE" | "GOAL_CELEBRATION" | "COMPLETE";
+export type NetworkSnapshot = { tick: number; serverTime: number; ackSequence: number; entities: NetworkEntityState[]; ball: NetworkBallState; score: MatchScore; seconds: number; started: boolean; phase: NetworkMatchPhase };
 export type InputCommand = { sequence: number; clientTime: number; reportedPingMs?: number; input: Pick<Input,"throttle"|"steer"|"gallop"|"brake"|"strike"|"power"|"backhand"|"aimX"> & Partial<Pick<Input,"aimY"|"rideOff">> };
 
-export type CompressedSnapshot = [number, number, Array<[PoloRiderEntity["id"],number,number,number,number,number,Gait]>, [number,number,number,number,number], number];
+export type CompressedSnapshot = [number, number, Array<[PoloRiderEntity["id"],number,number,number,number,number,Gait]>, [number,number,number,number,number], number, MatchScore?, number?, boolean?, NetworkMatchPhase?];
 
 const NETWORK_ARCHETYPE_BY_ID: Record<PoloRiderEntity["id"], HorseArchetype> = {
   player:"ALL_ROUNDER", blue_2:"SPRINTER", blue_3:"ALL_ROUNDER", blue_4:"POWER",
@@ -19,16 +20,16 @@ const NETWORK_ARCHETYPE_BY_ID: Record<PoloRiderEntity["id"], HorseArchetype> = {
 
 export function createInitialNetworkSnapshot(serverTime = 0): NetworkSnapshot {
   const entities = Object.values(initializeMatchEntities()).map(entity => ({ id:entity.id, position:{x:entity.position.x,z:entity.position.y}, velocity:{x:entity.velocity.x,z:entity.velocity.y}, heading:entity.heading, gait:"IDLE" as Gait }));
-  return { tick:0, serverTime, ackSequence:0, entities, ball:{position:{x:0,z:0},velocity:{x:0,z:0},y:.65} };
+  return { tick:0, serverTime, ackSequence:0, entities, ball:{position:{x:0,z:0},velocity:{x:0,z:0},y:.65}, score:{blue:0,red:0}, seconds:420, started:false, phase:"WAITING" };
 }
 
 export function compressSnapshot(snapshot: NetworkSnapshot): CompressedSnapshot {
-  return [snapshot.tick,snapshot.serverTime,snapshot.entities.map(entity=>[entity.id,entity.position.x,entity.position.z,entity.velocity.x,entity.velocity.z,entity.heading,entity.gait]),[snapshot.ball.position.x,snapshot.ball.position.z,snapshot.ball.velocity.x,snapshot.ball.velocity.z,snapshot.ball.y],snapshot.ackSequence];
+  return [snapshot.tick,snapshot.serverTime,snapshot.entities.map(entity=>[entity.id,entity.position.x,entity.position.z,entity.velocity.x,entity.velocity.z,entity.heading,entity.gait]),[snapshot.ball.position.x,snapshot.ball.position.z,snapshot.ball.velocity.x,snapshot.ball.velocity.z,snapshot.ball.y],snapshot.ackSequence,snapshot.score,snapshot.seconds,snapshot.started,snapshot.phase];
 }
 
 export function decompressSnapshot(value: CompressedSnapshot): NetworkSnapshot {
-  const [tick,serverTime,entities,ball,ackSequence]=value;
-  return {tick,serverTime,ackSequence,entities:entities.map(([id,x,z,vx,vz,heading,gait])=>({id,position:{x,z},velocity:{x:vx,z:vz},heading,gait})),ball:{position:{x:ball[0],z:ball[1]},velocity:{x:ball[2],z:ball[3]},y:ball[4]}};
+  const [tick,serverTime,entities,ball,ackSequence,score={blue:0,red:0},seconds=420,started=false,phase=started?"LIVE":"WAITING"]=value;
+  return {tick,serverTime,ackSequence,entities:entities.map(([id,x,z,vx,vz,heading,gait])=>({id,position:{x,z},velocity:{x:vx,z:vz},heading,gait})),ball:{position:{x:ball[0],z:ball[1]},velocity:{x:ball[2],z:ball[3]},y:ball[4]},score,seconds,started,phase};
 }
 
 export function predictLocalEntity(entity: NetworkEntityState, command: InputCommand, delta = 1/60): NetworkEntityState {

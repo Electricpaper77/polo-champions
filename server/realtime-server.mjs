@@ -36,6 +36,7 @@ const MALLET_CONTACT_RADIUS = 1.05;
 const GOAL_LINE_Z = 56;
 const GOAL_HALF_WIDTH = 6;
 const GOAL_CELEBRATION_MS = 1800;
+const MATCH_SECONDS = 420;
 const RIDE_OFF_ACTIVE_MULTIPLIER = 1.45;
 const MAX_RIDE_OFF_DEFLECTION = 5;
 const ENTITY_IDS = ["player", "blue_2", "blue_3", "blue_4", "blue_5", "blue_6", "red_1", "red_2", "red_3", "red_4", "red_5", "red_6"];
@@ -156,8 +157,8 @@ const integrateHorseMotion = (entity, input, delta) => {
   };
 };
 const angleDelta = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
-const initialState = (entityIds = ENTITY_IDS) => ({ tick: 0, serverTime: Date.now(), ackSequence: 0, started: false, entities: entityIds.map(id => { const start = START_BY_ID.get(id); return { id, position: { x: start[0], z: start[1] }, velocity: { x: 0, z: 0 }, heading: start[2], gait: "IDLE" }; }), ball: { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: BALL_START_Y, verticalVelocity: 0 } });
-const compress = (state, ackSequence = 0) => [state.tick, state.serverTime, state.entities.map(entity => [entity.id, entity.position.x, entity.position.z, entity.velocity.x, entity.velocity.z, entity.heading, entity.gait]), [state.ball.position.x, state.ball.position.z, state.ball.velocity.x, state.ball.velocity.z, state.ball.y], ackSequence];
+const initialState = (entityIds = ENTITY_IDS) => ({ tick: 0, serverTime: Date.now(), ackSequence: 0, started: false, seconds: MATCH_SECONDS, phase: "WAITING", matchStartedTick: null, entities: entityIds.map(id => { const start = START_BY_ID.get(id); return { id, position: { x: start[0], z: start[1] }, velocity: { x: 0, z: 0 }, heading: start[2], gait: "IDLE" }; }), ball: { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: BALL_START_Y, verticalVelocity: 0 } });
+const compress = (state, ackSequence = 0, score = { blue:0, red:0 }) => [state.tick, state.serverTime, state.entities.map(entity => [entity.id, entity.position.x, entity.position.z, entity.velocity.x, entity.velocity.z, entity.heading, entity.gait]), [state.ball.position.x, state.ball.position.z, state.ball.velocity.x, state.ball.velocity.z, state.ball.y], ackSequence, { ...score }, state.seconds, state.started, state.phase];
 const rooms = new Map();
 const roomLobbies = new Map();
 const queues = new Map(Object.keys(MATCH_TYPES).map(matchType => [matchType, []]));
@@ -221,7 +222,7 @@ function startPrivateRoom(lobby) {
   lobby.status = "STARTING";
   broadcastRoom(lobby);
   const id = lobby.code;
-  const activeEntityIds = rosterFor("1v1");
+  const activeEntityIds = rosterFor(DEFAULT_MATCH_TYPE);
   const state = initialState(activeEntityIds);
   const room = {
     id,
@@ -238,7 +239,7 @@ function startPrivateRoom(lobby) {
     pings: new Map(),
     history: new HistoricalStateBuffer(),
     emptySince: null,
-    matchType:"1v1",
+    matchType:DEFAULT_MATCH_TYPE,
     capacity:lobby.capacity,
     locked: true,
     activeEntityIds,
@@ -259,7 +260,7 @@ function startPrivateRoom(lobby) {
       disconnectedAt: null,
       reconnectDeadline: null,
     });
-    send(player.socket, { type: "MATCH_START", payload: { matchId: id, assignedEntityId, reconnectToken, initialState: compress(state), mode: "WEBSOCKET", playerNames: Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.playerName])), playerCosmetics:Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.cosmetics ?? {coat:"CHESTNUT",mallet:"BAMBOO"}])) } });
+    send(player.socket, { type: "MATCH_START", payload: { matchId: id, assignedEntityId, reconnectToken, initialState: compress(state, 0, room.score), mode: "WEBSOCKET", playerNames: Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.playerName])), playerCosmetics:Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.cosmetics ?? {coat:"CHESTNUT",mallet:"BAMBOO"}])) } });
   });
   for (const entity of state.entities) if (!room.slots.has(entity.id)) {
     const role = entity.id.startsWith("red_") ? "OPPONENT" : "TEAMMATE";
@@ -318,7 +319,7 @@ function startRoom(matchType = DEFAULT_MATCH_TYPE) {
       disconnectedAt: null,
       reconnectDeadline: null,
     });
-    send(client.socket, { type: "MATCH_START", payload: { matchId: id, assignedEntityId, reconnectToken, initialState: compress(state), mode: "WEBSOCKET", playerNames: Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.playerName])), playerCosmetics:Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.cosmetics ?? {coat:"CHESTNUT",mallet:"BAMBOO"}])) } });
+    send(client.socket, { type: "MATCH_START", payload: { matchId: id, assignedEntityId, reconnectToken, initialState: compress(state, 0, room.score), mode: "WEBSOCKET", playerNames: Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.playerName])), playerCosmetics:Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.cosmetics ?? {coat:"CHESTNUT",mallet:"BAMBOO"}])) } });
   });
   for (const entity of state.entities) if (!room.slots.has(entity.id)) {
     const role = ["ATTACKER", "MIDFIELDER", "DEFENDER", "SWEEPER"][ENTITY_IDS.filter(id => entityTeam({id}) === entityTeam(entity)).indexOf(entity.id)] ?? "SWEEPER";
@@ -330,9 +331,18 @@ function startRoom(matchType = DEFAULT_MATCH_TYPE) {
 
 function updateHuman(room, entity, command, delta) {
   const input = command.input ?? {};
+  if (room.state.phase === "COMPLETE") {
+    entity.velocity = {x:0,z:0};
+    entity.gait = "IDLE";
+    return;
+  }
   const hasPlayerIntent = Math.abs(input.throttle ?? 0) > .01 || Math.abs(input.steer ?? 0) > .01 || input.strike || input.backhand || input.rideOff;
   const frozenAtKickoff = !room.state.started && !hasPlayerIntent;
-  if (!room.state.started && hasPlayerIntent) room.state.started = true;
+  if (!room.state.started && hasPlayerIntent && room.state.phase !== "COMPLETE") {
+    room.state.started = true;
+    room.state.phase = "LIVE";
+    room.state.matchStartedTick = room.state.tick;
+  }
   if (frozenAtKickoff) {
     entity.velocity = {x:0,z:0};
     entity.gait = "IDLE";
@@ -459,8 +469,13 @@ function applyRideOffs(room, delta, now) {
 function resetSimulation(room, resetScore = false) {
   room.state.ball = { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: BALL_START_Y, verticalVelocity: 0 };
   room.state.started = false;
+  room.state.phase = "WAITING";
+  room.state.matchStartedTick = null;
   room.goalCelebrationUntil = null;
-  if (resetScore) room.score = { blue:0, red:0 };
+  if (resetScore) {
+    room.score = { blue:0, red:0 };
+    room.state.seconds = MATCH_SECONDS;
+  }
   room.state.entities.forEach(entity=>{const start=START_BY_ID.get(entity.id);entity.position={x:start[0],z:start[1]};entity.velocity={x:0,z:0};entity.heading=start[2];entity.gait="IDLE";});
   room.inputs.clear();
   room.strikes.clear();
@@ -556,7 +571,7 @@ wss.on("connection", socket => {
       const room = rooms.get(message.payload?.matchId);
       const reclaimed = room && reclaimPlayerSlot(room, socket, message.payload?.reconnectToken);
       if (!room || !reclaimed) return send(socket, { type: "ERROR", payload: { message: "Reconnect window expired or token invalid" } });
-      send(socket, { type: "MATCH_START", payload: { matchId: room.id, assignedEntityId: reclaimed.entityId, reconnectToken: reclaimed.reconnectToken, initialState: compress(room.state, room.acks.get(reclaimed.entityId) ?? 0), mode: "WEBSOCKET", playerNames: Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.playerName])) } });
+      send(socket, { type: "MATCH_START", payload: { matchId: room.id, assignedEntityId: reclaimed.entityId, reconnectToken: reclaimed.reconnectToken, initialState: compress(room.state, room.acks.get(reclaimed.entityId) ?? 0, room.score), mode: "WEBSOCKET", playerNames: Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.playerName])) } });
       broadcast(room, { type: "PLAYER_CONTROL_CHANGED", payload: reclaimed });
     } else if (message.type === "INPUT") {
       const room = rooms.get(message.payload?.matchId);
@@ -626,12 +641,22 @@ setInterval(() => {
     }
     room.state.tick += 1;
     room.state.serverTime = now;
+    if (room.state.phase === "LIVE" && room.state.seconds > 0) {
+      room.state.seconds = Math.max(0, MATCH_SECONDS - Math.floor((room.state.tick - (room.state.matchStartedTick ?? room.state.tick)) / SIMULATION_HZ));
+      if (room.state.seconds === 0) {
+        room.state.started = false;
+        room.state.phase = "COMPLETE";
+        room.inputs.clear();
+        room.strikes.clear();
+      }
+    }
     if (room.goalCelebrationUntil) {
       if (now >= room.goalCelebrationUntil) resetSimulation(room);
       else {
+        room.state.phase = "GOAL_CELEBRATION";
         room.state.entities.forEach(entity => { entity.velocity = {x:0,z:0}; entity.gait = "IDLE"; });
         room.history.record(room.state, now);
-        if (room.state.tick % (SIMULATION_HZ / NETWORK_HZ) === 0) for (const [socket, entityId] of room.clients) send(socket, { type:"STATE_SNAPSHOT", payload:compress(room.state, room.acks.get(entityId) ?? 0) });
+        if (room.state.tick % (SIMULATION_HZ / NETWORK_HZ) === 0) for (const [socket, entityId] of room.clients) send(socket, { type:"STATE_SNAPSHOT", payload:compress(room.state, room.acks.get(entityId) ?? 0, room.score) });
         continue;
       }
     }
@@ -673,6 +698,7 @@ setInterval(() => {
     if (goalTeam) {
       room.score[goalTeam] += 1;
       room.state.started = false;
+      room.state.phase = "GOAL_CELEBRATION";
       room.state.ball.velocity = {x:0,z:0};
       room.state.ball.verticalVelocity = 0;
       room.goalCelebrationUntil = now + GOAL_CELEBRATION_MS;
@@ -683,7 +709,7 @@ setInterval(() => {
       resetSimulation(room);
     }
     room.history.record(room.state, now);
-    if (room.state.tick % (SIMULATION_HZ / NETWORK_HZ) === 0) for (const [socket, entityId] of room.clients) send(socket, { type: "STATE_SNAPSHOT", payload: compress(room.state, room.acks.get(entityId) ?? 0) });
+    if (room.state.tick % (SIMULATION_HZ / NETWORK_HZ) === 0) for (const [socket, entityId] of room.clients) send(socket, { type: "STATE_SNAPSHOT", payload: compress(room.state, room.acks.get(entityId) ?? 0, room.score) });
   }
 }, 1000 / SIMULATION_HZ);
 
