@@ -8,8 +8,12 @@ export type MatchStartPayload = { matchId: string; assignedEntityId: PoloRiderEn
 export type PlayerControlChange = { entityId: PoloRiderEntity["id"]; playerName: string; state: "AI_BACKFILL" | "RECONNECTED"; reconnectDeadline?: number };
 export type GoalScored = { team: MatchTeam; score: MatchScore; celebrationMs: number };
 type QueueStatus = { players: number; capacity: number; roomId: string; matchType?: MatchType };
+export type RoomPlayer = { id: string; name: string; ready: boolean; connected: boolean; host: boolean };
+export type RoomState = { code: string; players: RoomPlayer[]; capacity: number; status: "WAITING" | "STARTING" };
 type ServerMessage =
   | { type: "QUEUE_STATUS"; payload: QueueStatus }
+  | { type: "ROOM_CONFIRMED"; payload: RoomState }
+  | { type: "ROOM_STATE"; payload: RoomState }
   | { type: "MATCH_START"; payload: Omit<MatchStartPayload, "initialState"> & { initialState: CompressedSnapshot } }
   | { type: "STATE_SNAPSHOT"; payload: CompressedSnapshot }
   | { type: "GOAL_SCORED"; payload: GoalScored }
@@ -20,6 +24,9 @@ type ServerMessage =
   | { type: "ERROR"; payload: { message: string } };
 type ClientMessage =
   | { type: "JOIN_QUEUE"; payload: { playerName: string; matchType?: MatchType; cosmetics?: { coat:string; mallet:string } } }
+  | { type: "CREATE_ROOM"; payload: { playerName: string; cosmetics?: { coat:string; mallet:string } } }
+  | { type: "JOIN_ROOM"; payload: { roomCode: string; playerName: string; cosmetics?: { coat:string; mallet:string } } }
+  | { type: "SET_READY"; payload: { roomCode: string; ready: boolean } }
   | { type: "RECONNECT"; payload: { matchId: string; reconnectToken: string } }
   | { type: "PING"; payload: { clientTime: number } }
   | { type: "RESET_MATCH"; payload: { matchId: string } }
@@ -30,6 +37,7 @@ type ClientMessage =
 type NetworkEvents = {
   status: { state: "DISCONNECTED" | "CONNECTING" | "CONNECTED" | "OFFLINE"; detail?: string };
   queue: QueueStatus;
+  room: RoomState;
   match: MatchStartPayload;
   snapshot: NetworkSnapshot;
   goal: GoalScored;
@@ -88,6 +96,7 @@ export class NetworkManager {
   private currentPingMs = 0;
   private lastInputSentAt = 0;
   private lastPlayerName: string | null = null;
+  private pendingRoomCode: string | null = null;
   private readonly baseDelayMs: number;
   private readonly maxDelayMs: number;
 
@@ -181,13 +190,32 @@ export class NetworkManager {
     return connecting;
   }
 
-  requestRoom(playerName: string, matchType: MatchType = "4v4"): boolean {
+  requestRoom(playerName: string, matchType: MatchType = "6v6"): boolean {
     this.lastPlayerName = playerName;
     if (this.queued || this.activeMatch) return false;
     const profile=PlayerProfileStore.get();
     const sent = this.send({ type: "JOIN_QUEUE", payload: { playerName, matchType, cosmetics:{coat:profile.equippedCoat,mallet:profile.equippedMallet} } });
     this.queued = sent;
     return sent;
+  }
+
+  createRoom(playerName: string): boolean {
+    this.lastPlayerName = playerName;
+    this.pendingRoomCode = null;
+    const profile=PlayerProfileStore.get();
+    return this.send({ type:"CREATE_ROOM", payload:{ playerName, cosmetics:{coat:profile.equippedCoat,mallet:profile.equippedMallet} } });
+  }
+
+  joinRoom(roomCode: string, playerName: string): boolean {
+    this.lastPlayerName = playerName;
+    this.pendingRoomCode = roomCode.trim().toUpperCase();
+    const profile=PlayerProfileStore.get();
+    return this.send({ type:"JOIN_ROOM", payload:{ roomCode:this.pendingRoomCode, playerName, cosmetics:{coat:profile.equippedCoat,mallet:profile.equippedMallet} } });
+  }
+
+  setRoomReady(roomCode: string, ready: boolean): boolean {
+    this.pendingRoomCode = roomCode.trim().toUpperCase();
+    return this.send({ type:"SET_READY", payload:{ roomCode:this.pendingRoomCode, ready } });
   }
 
   sendInput(command: InputCommand): boolean {
@@ -216,6 +244,10 @@ export class NetworkManager {
     try {
       const message = JSON.parse(String(raw)) as ServerMessage;
       if (message.type === "QUEUE_STATUS") this.emit("queue", message.payload);
+      else if (message.type === "ROOM_CONFIRMED" || message.type === "ROOM_STATE") {
+        this.pendingRoomCode = message.payload.code;
+        this.emit("room", message.payload);
+      }
       else if (message.type === "MATCH_START") {
         const match = { ...message.payload, initialState: decompressSnapshot(message.payload.initialState) };
         this.queued = false;
@@ -307,6 +339,7 @@ export class NetworkManager {
     this.everConnected = false;
     this.reconnectAttempt = 0;
     this.lastPlayerName = null;
+    this.pendingRoomCode = null;
     this.resumableMatch = null;
     this.currentPingMs = 0;
   }

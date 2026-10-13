@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   HistoricalStateBuffer,
@@ -15,8 +15,8 @@ const PORT = Number(process.env.PORT ?? 8080);
 const SIMULATION_HZ = 60;
 const NETWORK_HZ = 20;
 const HEARTBEAT_INTERVAL_MS = 15_000;
-const MATCH_TYPES = { "1v1": 2, "2v2": 4, "3v3": 6, "4v4": 8 };
-const DEFAULT_MATCH_TYPE = "4v4";
+const MATCH_TYPES = { "1v1": 2, "2v2": 4, "3v3": 6, "4v4": 8, "6v6": 12 };
+const DEFAULT_MATCH_TYPE = "6v6";
 const rosterFor = matchType => ENTITY_IDS.slice(0, MATCH_TYPES[matchType] ?? MATCH_TYPES[DEFAULT_MATCH_TYPE]);
 const NORMAL_RIDE_SPEED = 16;
 const MAX_GALLOP_SPEED = 18.05;
@@ -38,10 +38,10 @@ const GOAL_HALF_WIDTH = 6;
 const GOAL_CELEBRATION_MS = 1800;
 const RIDE_OFF_ACTIVE_MULTIPLIER = 1.45;
 const MAX_RIDE_OFF_DEFLECTION = 5;
-const ENTITY_IDS = ["player", "blue_2", "blue_3", "blue_4", "red_1", "red_2", "red_3", "red_4"];
-const STARTS = [[-5, 5, Math.PI/2], [-5, -15, Math.PI/2], [-5, -5, Math.PI/2], [-5, 15, Math.PI/2], [5, -15, -Math.PI/2], [5, -5, -Math.PI/2], [5, 5, -Math.PI/2], [5, 15, -Math.PI/2]];
+const ENTITY_IDS = ["player", "blue_2", "blue_3", "blue_4", "blue_5", "blue_6", "red_1", "red_2", "red_3", "red_4", "red_5", "red_6"];
+const STARTS = [[-9, -25, Math.PI/2], [-9, -15, Math.PI/2], [-9, -5, Math.PI/2], [-9, 5, Math.PI/2], [-9, 15, Math.PI/2], [-9, 25, Math.PI/2], [9, -25, -Math.PI/2], [9, -15, -Math.PI/2], [9, -5, -Math.PI/2], [9, 5, -Math.PI/2], [9, 15, -Math.PI/2], [9, 25, -Math.PI/2]];
 const START_BY_ID = new Map(ENTITY_IDS.map((id, index) => [id, STARTS[index]]));
-const POWER_IDS = new Set(["blue_4", "red_4"]);
+const POWER_IDS = new Set(["blue_4", "blue_6", "red_4", "red_6"]);
 const SPRINTER_IDS = new Set(["blue_2", "red_1", "red_3"]);
 const STRIKER_IDS = new Set(["blue_2", "blue_3", "red_1", "red_2", "red_3"]);
 const MIN_RIDER_SEPARATION = 2.6;
@@ -159,6 +159,7 @@ const angleDelta = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 const initialState = (entityIds = ENTITY_IDS) => ({ tick: 0, serverTime: Date.now(), ackSequence: 0, started: false, entities: entityIds.map(id => { const start = START_BY_ID.get(id); return { id, position: { x: start[0], z: start[1] }, velocity: { x: 0, z: 0 }, heading: start[2], gait: "IDLE" }; }), ball: { position: { x: 0, z: 0 }, velocity: { x: 0, z: 0 }, y: BALL_START_Y, verticalVelocity: 0 } });
 const compress = (state, ackSequence = 0) => [state.tick, state.serverTime, state.entities.map(entity => [entity.id, entity.position.x, entity.position.z, entity.velocity.x, entity.velocity.z, entity.heading, entity.gait]), [state.ball.position.x, state.ball.position.z, state.ball.velocity.x, state.ball.velocity.z, state.ball.y], ackSequence];
 const rooms = new Map();
+const roomLobbies = new Map();
 const queues = new Map(Object.keys(MATCH_TYPES).map(matchType => [matchType, []]));
 const leaderboard = new Map();
 const broadcastLeaderboard = () => { const payload=[...leaderboard.entries()].map(([username,elo])=>({username,elo})).sort((a,b)=>b.elo-a.elo).slice(0,50); for(const socket of wss.clients) send(socket,{type:"LEADERBOARD",payload}); };
@@ -169,6 +170,108 @@ function send(socket, message) {
 
 function broadcast(room, message) {
   for (const socket of room.clients.keys()) send(socket, message);
+}
+
+function roomCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  const bytes = randomBytes(8);
+  for (let index = 0; index < 6; index += 1) code += alphabet[bytes[index] % alphabet.length];
+  return code;
+}
+
+function uniqueRoomCode() {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const code = roomCode();
+    if (!roomLobbies.has(code) && !rooms.has(code)) return code;
+  }
+  return `P${Date.now().toString(36).slice(-5).toUpperCase()}`;
+}
+
+function publicRoomState(lobby) {
+  return {
+    code:lobby.code,
+    capacity:lobby.capacity,
+    status:lobby.status,
+    players:lobby.players.map(player => ({
+      id:player.id,
+      name:player.name,
+      ready:player.ready,
+      connected:Boolean(player.socket && player.socket.readyState === WebSocket.OPEN),
+      host:player.host,
+    })),
+  };
+}
+
+function broadcastRoom(lobby, type = "ROOM_STATE") {
+  const payload = publicRoomState(lobby);
+  for (const player of lobby.players) if (player.socket) send(player.socket, { type, payload });
+}
+
+function findLobbyForSocket(socket) {
+  for (const lobby of roomLobbies.values()) {
+    const player = lobby.players.find(value => value.socket === socket);
+    if (player) return { lobby, player };
+  }
+  return null;
+}
+
+function startPrivateRoom(lobby) {
+  if (lobby.status === "STARTING") return;
+  lobby.status = "STARTING";
+  broadcastRoom(lobby);
+  const id = lobby.code;
+  const activeEntityIds = rosterFor("1v1");
+  const state = initialState(activeEntityIds);
+  const room = {
+    id,
+    state,
+    clients: new Map(),
+    slots: new Map(),
+    inputs: new Map(),
+    acks: new Map(),
+    processed: new Map(),
+    strikes: new Map(),
+    botStrikeCooldowns: new Map(),
+    score: { blue:0, red:0 },
+    goalCelebrationUntil: null,
+    pings: new Map(),
+    history: new HistoricalStateBuffer(),
+    emptySince: null,
+    matchType:"1v1",
+    capacity:lobby.capacity,
+    locked: true,
+    activeEntityIds,
+  };
+  room.history.record(state, state.serverTime);
+  lobby.players.forEach((player, index) => {
+    if (!player.socket || player.socket.readyState !== WebSocket.OPEN) return;
+    const assignedEntityId = activeEntityIds[index];
+    const reconnectToken = randomUUID();
+    room.clients.set(player.socket, assignedEntityId);
+    room.slots.set(assignedEntityId, {
+      entityId: assignedEntityId,
+      playerName: player.name,
+      cosmetics: player.cosmetics ?? { coat:"CHESTNUT", mallet:"BAMBOO" },
+      reconnectToken,
+      control: "HUMAN",
+      socket: player.socket,
+      disconnectedAt: null,
+      reconnectDeadline: null,
+    });
+    send(player.socket, { type: "MATCH_START", payload: { matchId: id, assignedEntityId, reconnectToken, initialState: compress(state), mode: "WEBSOCKET", playerNames: Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.playerName])), playerCosmetics:Object.fromEntries([...room.slots.values()].map(slot => [slot.entityId, slot.cosmetics ?? {coat:"CHESTNUT",mallet:"BAMBOO"}])) } });
+  });
+  for (const entity of state.entities) if (!room.slots.has(entity.id)) {
+    const role = entity.id.startsWith("red_") ? "OPPONENT" : "TEAMMATE";
+    room.slots.set(entity.id, { entityId:entity.id, playerName:`[BOT] ${role}`, reconnectToken:null, control:"BOT", socket:null, disconnectedAt:null, reconnectDeadline:null, role });
+  }
+  rooms.set(id, room);
+  roomLobbies.delete(lobby.code);
+}
+
+function maybeStartPrivateRoom(lobby) {
+  const connected = lobby.players.filter(player => player.socket?.readyState === WebSocket.OPEN);
+  if (connected.length >= lobby.capacity && connected.every(player => player.ready)) startPrivateRoom(lobby);
 }
 
 function queueStatus(matchType) {
@@ -390,7 +493,54 @@ wss.on("connection", socket => {
   socket.on("message", data => {
     let message;
     try { message = JSON.parse(String(data)); } catch { return send(socket, { type: "ERROR", payload: { message: "Malformed message" } }); }
-    if (message.type === "JOIN_QUEUE") {
+    if (message.type === "CREATE_ROOM") {
+      const existing = findLobbyForSocket(socket);
+      if (existing) {
+        existing.player.connected = true;
+        return send(socket, { type:"ROOM_CONFIRMED", payload:publicRoomState(existing.lobby) });
+      }
+      const code = uniqueRoomCode();
+      const playerName = String(message.payload?.playerName ?? "PLAYER").trim().slice(0, 32) || "PLAYER";
+      const lobby = {
+        code,
+        capacity:2,
+        status:"WAITING",
+        createdAt:Date.now(),
+        updatedAt:Date.now(),
+        players:[{ id:randomUUID(), name:playerName, cosmetics:message.payload?.cosmetics, ready:false, host:true, socket }],
+      };
+      roomLobbies.set(code, lobby);
+      send(socket, { type:"ROOM_CONFIRMED", payload:publicRoomState(lobby) });
+    } else if (message.type === "JOIN_ROOM") {
+      const code = String(message.payload?.roomCode ?? "").trim().toUpperCase();
+      const lobby = roomLobbies.get(code);
+      if (!lobby || lobby.status !== "WAITING") return send(socket, { type:"ERROR", payload:{ message:"Invalid room code" } });
+      const playerName = String(message.payload?.playerName ?? "PLAYER").trim().slice(0, 32) || "PLAYER";
+      const existing = lobby.players.find(player => player.name.toUpperCase() === playerName.toUpperCase());
+      if (existing) {
+        existing.socket = socket;
+        existing.ready = false;
+        existing.cosmetics = message.payload?.cosmetics ?? existing.cosmetics;
+        lobby.updatedAt = Date.now();
+        send(socket, { type:"ROOM_CONFIRMED", payload:publicRoomState(lobby) });
+        broadcastRoom(lobby);
+        return;
+      }
+      if (lobby.players.filter(player => player.socket?.readyState === WebSocket.OPEN).length >= lobby.capacity || lobby.players.length >= lobby.capacity) return send(socket, { type:"ERROR", payload:{ message:"Room is full" } });
+      lobby.players.push({ id:randomUUID(), name:playerName, cosmetics:message.payload?.cosmetics, ready:false, host:false, socket });
+      lobby.updatedAt = Date.now();
+      send(socket, { type:"ROOM_CONFIRMED", payload:publicRoomState(lobby) });
+      broadcastRoom(lobby);
+    } else if (message.type === "SET_READY") {
+      const code = String(message.payload?.roomCode ?? "").trim().toUpperCase();
+      const lobby = roomLobbies.get(code);
+      const player = lobby?.players.find(value => value.socket === socket);
+      if (!lobby || !player) return send(socket, { type:"ERROR", payload:{ message:"Join a valid room before readying up" } });
+      player.ready = Boolean(message.payload?.ready);
+      lobby.updatedAt = Date.now();
+      broadcastRoom(lobby);
+      maybeStartPrivateRoom(lobby);
+    } else if (message.type === "JOIN_QUEUE") {
       const requestedType = String(message.payload?.matchType ?? DEFAULT_MATCH_TYPE);
       const matchType = Object.hasOwn(MATCH_TYPES, requestedType) ? requestedType : DEFAULT_MATCH_TYPE;
       const queue = queues.get(matchType);
@@ -432,6 +582,13 @@ wss.on("connection", socket => {
     }
   });
   socket.on("close", () => {
+    const lobbyMatch = findLobbyForSocket(socket);
+    if (lobbyMatch) {
+      lobbyMatch.player.socket = null;
+      lobbyMatch.player.ready = false;
+      lobbyMatch.lobby.updatedAt = Date.now();
+      broadcastRoom(lobbyMatch.lobby);
+    }
     for (const queue of queues.values()) {
       const index = queue.findIndex(item => item.socket === socket);
       if (index >= 0) { const [removed] = queue.splice(index, 1); queueStatus(removed.matchType); }
@@ -458,6 +615,9 @@ setInterval(broadcastLeaderboard, 15_000);
 setInterval(() => {
   const delta = 1 / SIMULATION_HZ;
   const now = Date.now();
+  for (const [code, lobby] of roomLobbies) {
+    if (now - lobby.updatedAt > 10 * 60_000) roomLobbies.delete(code);
+  }
   for (const [roomId, room] of rooms) {
     expireReconnectSlots(room, now);
     if (shouldRetireRoom(room, now)) {

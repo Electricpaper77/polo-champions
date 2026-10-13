@@ -1,4 +1,4 @@
-export const BALL_START = { x: 0, y: 0.15, z: 0 };
+export const BALL_START = { x: 0, y: 0.65, z: 0 };
 export const BALL_MIN_Y = .06;
 export type StrikePhase = "WIND_UP" | "CONTACT" | "FOLLOW_THROUGH" | "RECOVERY" | "READY";
 export const STRIKE_CONTACT_START = .10;
@@ -9,13 +9,13 @@ export const BALL_MASS = .13;
 export const MIN_SWING_POWER = .5;
 export const MAX_SWING_POWER = 2;
 /** Turf damping is intentionally strong enough to settle a loose ball without killing a strike. */
-export const BALL_FIELD_DRAG = 0.18;
+export const BALL_FIELD_DRAG = 0.85;
 export const BALL_SURFACE_FRICTION = 0.58;
-export const BALL_BOUNCE_ELASTICITY = 0.3;
+export const BALL_BOUNCE_ELASTICITY = 0.42;
 export const BALL_STOP_SPEED = .08;
 export const BALL_ROLLING_RESISTANCE = 1.5;
 export const BALL_AIR_DRAG = .015;
-export const MALLET_HEAD_RADIUS = .14;
+export const MALLET_HEAD_RADIUS = .07;
 export const BALL_RADIUS = .44;
 export const MALLET_CONTACT_RADIUS = MALLET_HEAD_RADIUS + BALL_RADIUS;
 
@@ -66,7 +66,7 @@ export function getSwingPowerMultiplier(charge: number) {
 }
 
 export function getShotImpulse({ aimX, aimY = 0, yaw, backhand, charge, speed, horseVelocity, swingTangent }: ShotInput) {
-  const localX = clamp(aimX, -1, 1) * .9;
+  const localX = clamp(aimX, -1, 1) * .7;
   const magnitude = Math.hypot(localX, 1);
   let direction = {
     x: (localX * Math.cos(yaw) + Math.sin(yaw)) / magnitude,
@@ -83,13 +83,13 @@ export function getShotImpulse({ aimX, aimY = 0, yaw, backhand, charge, speed, h
   const forwardVelocity = horseVelocity ?? { x: Math.sin(yaw) * speed, y: 0, z: Math.cos(yaw) * speed };
   const normalizedCharge = clamp(charge, 0, 1);
   const powerMultiplier = getSwingPowerMultiplier(normalizedCharge);
-  const horseSpeedBonus = clamp(Math.abs(speed), 0, 18) * .8;
+  const horseSpeedBonus = clamp(Math.abs(speed), 0, 18) * .85;
   const power = BASE_BALL_IMPULSE * powerMultiplier + horseSpeedBonus;
   const loft = Math.max(.5, .65 + normalizedCharge * 4.35 + clamp(aimY, -1, 1));
   return {
-    x: forwardVelocity.x * .8 + direction.x * power,
+    x: forwardVelocity.x + direction.x * power,
     y: (forwardVelocity.y ?? 0) + loft,
-    z: forwardVelocity.z * .8 + direction.z * power,
+    z: forwardVelocity.z + direction.z * power,
     power,
     powerMultiplier,
     horseSpeedBonus,
@@ -134,10 +134,17 @@ export function pointSegmentDistance(point: { x: number; z: number }, start: { x
 
 export function getMalletSweepContact(input: MalletSweepInput): { hit: boolean; tangent: { x: number; z: number } } {
   if (input.currentElapsed < STRIKE_CONTACT_START || input.previousElapsed > STRIKE_CONTACT_END) return { hit: false, tangent: { x: 0, z: 0 } };
-  const previous = getMalletHeadPosition({ ...input, contactProgress: getStrikeContactProgress(input.previousElapsed) });
-  const current = getMalletHeadPosition({ ...input, contactProgress: getStrikeContactProgress(input.currentElapsed) });
-  const tangent = { x: current.x - previous.x, z: current.z - previous.z };
-  return { hit: pointSegmentDistance(input.ballPosition, previous, current) <= MALLET_CONTACT_RADIUS, tangent };
+  let previous = getMalletHeadPosition({ ...input, contactProgress: getStrikeContactProgress(input.previousElapsed) });
+  let tangent = { x: 0, z: 0 };
+  const steps = 8;
+  for (let step = 1; step <= steps; step += 1) {
+    const elapsed = input.previousElapsed + (input.currentElapsed - input.previousElapsed) * (step / steps);
+    const current = getMalletHeadPosition({ ...input, contactProgress: getStrikeContactProgress(elapsed) });
+    tangent = { x: current.x - previous.x, z: current.z - previous.z };
+    if (pointSegmentDistance(input.ballPosition, previous, current) <= MALLET_CONTACT_RADIUS) return { hit: true, tangent };
+    previous = current;
+  }
+  return { hit: false, tangent };
 }
 
 export function isBallInMalletSweep(input: MalletSweepInput) {

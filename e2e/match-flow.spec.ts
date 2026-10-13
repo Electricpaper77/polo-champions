@@ -14,7 +14,7 @@ test("a player can enter a match, ride, swing, and reach the final summary", asy
 
   await expect(page.locator(".broadcast")).toContainText("CHUKKER");
   await expect(page.locator(".telemetry")).toHaveAttribute("data-speed-kmh", /\d+\.\d/);
-  await expect(page.locator(".radar .rider")).toHaveCount(8);
+  await expect(page.locator(".radar .rider")).toHaveCount(12);
 
   await page.evaluate(() => window.dispatchEvent(new Event("polo-e2e-complete")));
   await expect(page.getByRole("dialog", { name: "Post match summary" })).toBeVisible();

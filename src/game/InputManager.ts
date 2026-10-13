@@ -66,7 +66,7 @@ export function createInputSnapshot(
   aimDirection:AimDirection = { x:0, y:0 },
   cameraZoom = DEFAULT_CAMERA_DISTANCE,
 ):Input {
-  const strike = mouseButtons.has(PRIMARY_MOUSE_BUTTON);
+  const strike = mouseButtons.has(PRIMARY_MOUSE_BUTTON) || keys.has("KeyX");
   const rideOff = mouseButtons.has(SECONDARY_MOUSE_BUTTON);
   const powerModifier = keys.has("KeyR");
   const defensiveMark = keys.has("KeyF");

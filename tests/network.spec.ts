@@ -63,6 +63,30 @@ test("authoritative goal events preserve team, score, and celebration duration",
   manager.disconnect();
 });
 
+test("room-code protocol waits for server confirmation and publishes lobby state", async () => {
+  let socket!: MockSocket;
+  const manager = new NetworkManager("ws://mock", () => (socket = new MockSocket()));
+  const connected = manager.connect();
+  socket.open();
+  await connected;
+
+  const rooms: unknown[] = [];
+  const errors: unknown[] = [];
+  manager.on("room", room => rooms.push(room));
+  manager.on("error", error => errors.push(error));
+
+  expect(manager.createRoom("POLO_BLUE")).toBe(true);
+  expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ type:"CREATE_ROOM", payload:{ playerName:"POLO_BLUE" } });
+  socket.serverSend({ type:"ROOM_CONFIRMED", payload:{ code:"ABCD23", capacity:2, status:"WAITING", players:[{ id:"p1", name:"POLO_BLUE", ready:false, connected:true, host:true }] } });
+  expect(rooms.at(-1)).toMatchObject({ code:"ABCD23", players:[{ name:"POLO_BLUE", host:true }] });
+
+  expect(manager.setRoomReady("ABCD23", true)).toBe(true);
+  expect(JSON.parse(socket.sent.at(-1)!)).toEqual({ type:"SET_READY", payload:{ roomCode:"ABCD23", ready:true } });
+  socket.serverSend({ type:"ERROR", payload:{ message:"Invalid room code" } });
+  expect(errors).toEqual([{ message:"Invalid room code" }]);
+  manager.disconnect();
+});
+
 test("websocket environment routing falls back locally and honors production configuration", () => {
   expect(resolveWebSocketUrl()).toBe("ws://localhost:8080");
   expect(resolveWebSocketUrl("  wss://polo-realtime.example.com/socket  ")).toBe("wss://polo-realtime.example.com/socket");
@@ -90,7 +114,7 @@ test("unexpected disconnect reconnects with backoff and restores the queued play
   await expect.poll(() => sockets.length).toBe(2);
   sockets[1].open();
   await expect.poll(() => sockets[1].sent.length).toBe(2);
-  expect(JSON.parse(sockets[1].sent[1])).toEqual({ type: "JOIN_QUEUE", payload: { playerName: "POLOPLAYER1", mode: "6V6" } });
+  expect(JSON.parse(sockets[1].sent[1])).toMatchObject({ type: "JOIN_QUEUE", payload: { playerName: "POLOPLAYER1", matchType: "6v6" } });
   expect(states).toEqual(expect.arrayContaining(["DISCONNECTED", "CONNECTING", "CONNECTED"]));
   manager.disconnect();
 });

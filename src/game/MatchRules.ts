@@ -18,7 +18,7 @@ export const BOT_ACCELERATION = 8;
 export const BOT_TURN_RATE = 1.55;
 export const BALL_IN_PLAY_SPEED = 0.45;
 export const BALL_IN_PLAY_DISTANCE = 1.2;
-export const GOAL_LINE_Z = 56;
+export const GOAL_LINE_Z = 42;
 export const GOAL_HALF_WIDTH = 6;
 export const RIDE_OFF_ACTIVE_MULTIPLIER = 1.45;
 export const MAX_RIDE_OFF_DEFLECTION = 5;
@@ -35,7 +35,7 @@ export function decideBot(bot:Bot,ball:Vec,opponent?:Bot):BotState{const toBall=
 export function legalRideOff(a:Bot,b:Bot){return Math.acos(clamp(dot(norm(a.facing),norm(b.facing)),-1,1))<=Math.PI/4}
 export function rideOffImpulse(a:Bot,b:Bot){return legalRideOff(a,b)?Math.max(0,getHorseArchetype(a.archetype).mass-getHorseArchetype(b.archetype).mass+.25):0}
 export function applyRideOffDisplacement(a:Bot,b:Bot,dt=1){const dx=a.position.x-b.position.x,dz=a.position.z-b.position.z,distance=Math.hypot(dx,dz)||1,normal={x:dx/distance,z:dz/distance},aPush=rideOffImpulse(a,b),bPush=rideOffImpulse(b,a);return {a:{x:a.position.x+normal.x*bPush*dt,z:a.position.z+normal.z*bPush*dt},b:{x:b.position.x-normal.x*aPush*dt,z:b.position.z-normal.z*aPush*dt}}}
-export function isLineOfBallFoul(ball:Vec,line:Vec,rider:Vec,pursuer:Team,riderTeam:Team){const speed=length(line);return riderTeam!==pursuer&&speed>5&&dot(sub(rider,ball),norm(line))>0&&Math.abs(line.x*(rider.z-ball.z)-line.z*(rider.x-ball.x))/speed<2}
+export function isLineOfBallFoul(ball:Vec,line:Vec,rider:Vec,pursuer:Team,riderTeam:Team){const speed=length(line);return riderTeam!==pursuer&&speed>Number.EPSILON&&dot(sub(rider,ball),norm(line))>0&&Math.abs(line.x*(rider.z-ball.z)-line.z*(rider.x-ball.x))/speed<2}
 export function goalResult(position:Vec){return Math.abs(position.z)>GOAL_LINE_Z&&Math.abs(position.x)<GOAL_HALF_WIDTH?{scored:true,reset:{x:0,z:0}}:{scored:false,reset:null}}
 
 export function detectGoalCrossing(previous:Vec, current:Vec):MatchTeam|null {

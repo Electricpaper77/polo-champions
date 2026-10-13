@@ -12,12 +12,14 @@ export type CompressedSnapshot = [number, number, Array<[PoloRiderEntity["id"],n
 
 const NETWORK_ARCHETYPE_BY_ID: Record<PoloRiderEntity["id"], HorseArchetype> = {
   player:"ALL_ROUNDER", blue_2:"SPRINTER", blue_3:"ALL_ROUNDER", blue_4:"POWER",
+  blue_5:"ALL_ROUNDER", blue_6:"POWER",
   red_1:"SPRINTER", red_2:"ALL_ROUNDER", red_3:"SPRINTER", red_4:"POWER",
+  red_5:"ALL_ROUNDER", red_6:"POWER",
 };
 
 export function createInitialNetworkSnapshot(serverTime = 0): NetworkSnapshot {
   const entities = Object.values(initializeMatchEntities()).map(entity => ({ id:entity.id, position:{x:entity.position.x,z:entity.position.y}, velocity:{x:entity.velocity.x,z:entity.velocity.y}, heading:entity.heading, gait:"IDLE" as Gait }));
-  return { tick:0, serverTime, ackSequence:0, entities, ball:{position:{x:0,z:0},velocity:{x:0,z:0},y:.15} };
+  return { tick:0, serverTime, ackSequence:0, entities, ball:{position:{x:0,z:0},velocity:{x:0,z:0},y:.65} };
 }
 
 export function compressSnapshot(snapshot: NetworkSnapshot): CompressedSnapshot {
@@ -35,7 +37,7 @@ export function predictLocalEntity(entity: NetworkEntityState, command: InputCom
 }
 
 function lerpAngle(a:number,b:number,t:number){const delta=Math.atan2(Math.sin(b-a),Math.cos(b-a));return a+delta*t}
-function interpolateEntity(a:NetworkEntityState,b:NetworkEntityState,t:number):NetworkEntityState{const u=Math.max(0,Math.min(1,t)),u2=u*u,u3=u2*u,dt=Math.max(.001,(b as NetworkEntityState & {serverTime?:number}).serverTime??.1),h00=2*u3-3*u2+1,h10=u3-2*u2+u,h01=-2*u3+3*u2,h11=u3-u2;const hermite=(start:number,end:number,startVelocity:number,endVelocity:number)=>h00*start+h10*startVelocity*dt+h01*end+h11*endVelocity*dt;return {...b,position:{x:hermite(a.position.x,b.position.x,a.velocity.x,b.velocity.x),z:hermite(a.position.z,b.position.z,a.velocity.z,b.velocity.z)},velocity:{x:a.velocity.x+(b.velocity.x-a.velocity.x)*u,z:a.velocity.z+(b.velocity.z-a.velocity.z)*u},heading:lerpAngle(a.heading,b.heading,u)}}
+function interpolateEntity(a:NetworkEntityState,b:NetworkEntityState,t:number):NetworkEntityState{const u=Math.max(0,Math.min(1,t));return {...b,position:{x:a.position.x+(b.position.x-a.position.x)*u,z:a.position.z+(b.position.z-a.position.z)*u},velocity:{x:a.velocity.x+(b.velocity.x-a.velocity.x)*u,z:a.velocity.z+(b.velocity.z-a.velocity.z)*u},heading:lerpAngle(a.heading,b.heading,u)}}
 
 export class SnapshotBuffer {
   private snapshots:NetworkSnapshot[]=[];
