@@ -178,12 +178,41 @@ test("production realtime server requires origins, rejects oversized messages, a
       blocked.on("error", () => resolve(403));
     })).resolves.toBe(403);
 
-    await expect(new Promise<number>((resolve, reject) => {
+    const sendAndCloseCode = (payload: string | Buffer | string[], timeoutMs = 2_000) => new Promise<number | string>((resolve, reject) => {
       const socket = new NodeWebSocket("ws://127.0.0.1:18082", { origin:allowedOrigin });
-      socket.on("open", () => socket.send("x".repeat(700)));
-      socket.on("close", code => resolve(code));
+      const timer = setTimeout(() => { socket.close(); resolve("timeout"); }, timeoutMs);
+      socket.on("open", () => Array.isArray(payload) ? socket.send(payload, error => error && reject(error)) : socket.send(payload, error => error && reject(error)));
+      socket.on("close", code => { clearTimeout(timer); resolve(code); });
+      socket.on("error", reject);
+    });
+    const jsonPayload = (padLength: number) => JSON.stringify({ type:"PING", payload:{ clientTime:Date.now(), pad:"x".repeat(padLength) } });
+    const belowLimit = jsonPayload(420);
+    const exactLimit = `${"{".padEnd(511, " ")}}`;
+    expect(Buffer.byteLength(belowLimit)).toBeLessThan(512);
+    expect(Buffer.byteLength(exactLimit)).toBe(512);
+    await expect(sendAndCloseCode(belowLimit, 500)).resolves.toBe("timeout");
+    await expect(sendAndCloseCode(exactLimit, 500)).resolves.toBe("timeout");
+    await expect(sendAndCloseCode(jsonPayload(512))).resolves.toBe(1009);
+    await expect(sendAndCloseCode(jsonPayload(4_000))).resolves.toBe(1009);
+    await expect(new Promise<number | string>((resolve, reject) => {
+      const socket = new NodeWebSocket("ws://127.0.0.1:18082", { origin:allowedOrigin });
+      const timer = setTimeout(() => { socket.close(); resolve("timeout"); }, 2_000);
+      socket.on("open", () => {
+        const sender = (socket as unknown as { _sender:{ send(data:string, options:Record<string, unknown>, callback:(error?:Error)=>void):void } })._sender;
+        sender.send("x".repeat(260), { fin:false, binary:false, mask:true }, error => error && reject(error));
+        sender.send("x".repeat(260), { fin:true, binary:false, mask:true }, error => error && reject(error));
+      });
+      socket.on("close", code => { clearTimeout(timer); resolve(code); });
       socket.on("error", reject);
     })).resolves.toBe(1009);
+    await expect(sendAndCloseCode(Buffer.alloc(700))).resolves.toBe(1009);
+
+    await expect(new Promise<{ message:string }>((resolve, reject) => {
+      const socket = new NodeWebSocket("ws://127.0.0.1:18082", { origin:allowedOrigin });
+      socket.on("open", () => socket.send("{"));
+      socket.on("message", data => { const message = JSON.parse(String(data)); socket.close(); resolve(message.payload); });
+      socket.on("error", reject);
+    })).resolves.toEqual({ message:"Malformed message" });
 
     const result = await new Promise<{ phase:string; scoreBlue:number }>((resolve, reject) => {
       const host = new NodeWebSocket("ws://127.0.0.1:18082", { origin:allowedOrigin });

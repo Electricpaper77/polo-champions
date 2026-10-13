@@ -14,7 +14,11 @@ import {
 const PORT = Number(process.env.PORT ?? 8080);
 const TEST_PROTOCOL = process.env.NODE_ENV !== "production" && process.env.POLO_TEST_PROTOCOL === "1";
 const ALLOWED_ORIGINS = new Set(String(process.env.WS_ALLOWED_ORIGINS ?? process.env.ALLOWED_ORIGINS ?? "").split(",").map(origin => origin.trim()).filter(Boolean));
-const MAX_WS_MESSAGE_BYTES = Number(process.env.MAX_WS_MESSAGE_BYTES ?? 8_192);
+const parsePositiveInteger = (value, fallback) => {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+const MAX_WS_MESSAGE_BYTES = parsePositiveInteger(process.env.MAX_WS_MESSAGE_BYTES ?? 8_192, 8_192);
 const MAX_CONNECTIONS = Number(process.env.MAX_CONNECTIONS ?? 200);
 const MAX_ACTIVE_ROOMS = Number(process.env.MAX_ACTIVE_ROOMS ?? 100);
 const MAX_PENDING_LOBBIES = Number(process.env.MAX_PENDING_LOBBIES ?? 100);
@@ -595,6 +599,7 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({
   server,
+  maxPayload: MAX_WS_MESSAGE_BYTES,
   verifyClient: ({ origin }, done) => {
     if (draining) done(false, 503, "Server is draining");
     else if (wss?.clients?.size >= MAX_CONNECTIONS) done(false, 503, "Server is full");
@@ -608,6 +613,11 @@ console.log('Realtime server running on port ' + PORT);
 });
 wss.on("connection", socket => {
   socket.isAlive = true;
+  socket.on("error", error => {
+    if (error?.code === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH") {
+      socket.close(1009, "Message too large");
+    }
+  });
   socket.lastChatAt = 0;
   socket.on("pong", () => { socket.isAlive = true; });
   socket.on("message", data => {
